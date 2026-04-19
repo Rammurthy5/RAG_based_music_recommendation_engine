@@ -1,0 +1,62 @@
+services:
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.28.2
+    ports:
+      - "8085:8080"
+      - "50051:50051"
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    restart: on-failure:3
+    environment:
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+      CLUSTER_HOSTNAME: "node1"
+      QUERY_DEFAULTS_LIMIT: 25
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--spider", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  rag-service:
+    build:
+      context: ./rag-service
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      weaviate:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      WEAVIATE_HOST: weaviate
+      WEAVIATE_HTTP_PORT: "8080"
+      WEAVIATE_GRPC_PORT: "50051"
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      - rag-service
+    environment:
+      RAG_SERVICE_URL: "http://rag-service:8000"
+      PORT: "8080"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-gateway
+    environment:
+      NEXT_PUBLIC_API_URL: "http://localhost:8080"
+
+volumes:
+  weaviate_data:
