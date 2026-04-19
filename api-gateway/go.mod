@@ -1,6 +1,6 @@
 module github.com/rsi03/music-rec-gateway
 
-go 1.24.2
+go 1.22.2
 
 require (
 	github.com/go-chi/chi/v5 v5.1.0
