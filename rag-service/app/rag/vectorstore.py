@@ -1,7 +1,7 @@
 """Weaviate vector store connection and retrieval.
 
 Provides a singleton Weaviate client and nearVector search against the
-MusicRecommendations collection.
+MusicRecommendations collection with timeout enforcement and embedding retry.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import weaviate.classes.query as wq
 
 from app.config import settings
 from app.rag.embeddings import embed_single
+from app.resilience import embedding_retry
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +34,26 @@ def get_client() -> weaviate.WeaviateClient:
             grpc_host=settings.weaviate_host,
             grpc_port=settings.weaviate_grpc_port,
             grpc_secure=False,
+            additional_config=weaviate.classes.init.AdditionalConfig(
+                timeout=weaviate.classes.init.Timeout(
+                    query=settings.weaviate_query_timeout,
+                    insert=30,
+                    init=10,
+                ),
+            ),
         )
     return _client
+
+
+def close_client() -> None:
+    """Close the shared Weaviate client if open."""
+    global _client
+    if _client is not None:
+        try:
+            _client.close()
+        except Exception:
+            pass
+        _client = None
 
 
 @dataclass
@@ -66,13 +85,14 @@ def search_tracks(
     """Embed query and perform nearVector search against Weaviate.
 
     Returns tracks sorted by similarity, filtered by threshold.
+    Embedding is retried on transient failures (cold start, etc.).
     """
     if top_k is None:
         top_k = settings.top_k
     if similarity_threshold is None:
         similarity_threshold = settings.similarity_threshold
 
-    query_vector = embed_single(query)
+    query_vector = embedding_retry(embed_single)(query)
     client = get_client()
     collection = client.collections.get(COLLECTION_NAME)
 

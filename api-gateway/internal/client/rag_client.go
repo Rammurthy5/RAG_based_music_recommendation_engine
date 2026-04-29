@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/rsi03/music-rec-gateway/internal/middleware"
 	"github.com/sony/gobreaker"
 )
 
@@ -51,6 +52,10 @@ func (c *RAGClient) Recommend(ctx context.Context, body []byte) (json.RawMessage
 			return nil, fmt.Errorf("creating request: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
+		// Propagate request ID for distributed tracing
+		if rid := middleware.GetRequestID(ctx); rid != "" {
+			req.Header.Set("X-Request-ID", rid)
+		}
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
