@@ -1,0 +1,7 @@
+*.exe
+*.test
+*.out
+.git/
+.gitignore
+*.md
+coverage.*

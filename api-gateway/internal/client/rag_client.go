@@ -13,6 +13,8 @@ import (
 	"github.com/sony/gobreaker"
 )
 
+const maxResponseSize = 1024 * 1024 // 1MB
+
 // RAGClient proxies requests to the Python RAG service.
 type RAGClient struct {
 	baseURL    string
@@ -21,23 +23,37 @@ type RAGClient struct {
 }
 
 // NewRAGClient creates a client for the RAG service with circuit breaker.
-func NewRAGClient(baseURL string) *RAGClient {
+func NewRAGClient(baseURL string, proxyTimeout time.Duration, cbMaxFailures int, cbResetTimeout time.Duration, cbMaxRequests int) *RAGClient {
 	cbSettings := gobreaker.Settings{
 		Name:        "RAGService",
-		MaxRequests: 3,
-		Interval:    60 * time.Second,
-		Timeout:     60 * time.Second,
+		MaxRequests: uint32(cbMaxRequests),
+		Interval:    cbResetTimeout,
+		Timeout:     cbResetTimeout,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
-			return counts.ConsecutiveFailures > 5
+			return counts.ConsecutiveFailures > uint32(cbMaxFailures)
 		},
 	}
 
 	return &RAGClient{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Timeout: 45 * time.Second,
+			Timeout: proxyTimeout + 10*time.Second,
 		},
 		cb: gobreaker.NewCircuitBreaker(cbSettings),
+	}
+}
+
+// CircuitBreakerState returns the current state of the circuit breaker ("closed", "open", "half-open").
+func (c *RAGClient) CircuitBreakerState() string {
+	switch c.cb.State() {
+	case gobreaker.StateClosed:
+		return "closed"
+	case gobreaker.StateOpen:
+		return "open"
+	case gobreaker.StateHalfOpen:
+		return "half-open"
+	default:
+		return "unknown"
 	}
 }
 
@@ -63,7 +79,9 @@ func (c *RAGClient) Recommend(ctx context.Context, body []byte) (json.RawMessage
 		}
 		defer resp.Body.Close()
 
-		respBody, err := io.ReadAll(resp.Body)
+		// Limit response read size to prevent memory exhaustion
+		limitedReader := io.LimitReader(resp.Body, maxResponseSize)
+		respBody, err := io.ReadAll(limitedReader)
 		if err != nil {
 			return nil, fmt.Errorf("reading response: %w", err)
 		}
@@ -97,7 +115,7 @@ func (c *RAGClient) HealthCheck(ctx context.Context) (json.RawMessage, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if err != nil {
 		return nil, fmt.Errorf("reading health response: %w", err)
 	}

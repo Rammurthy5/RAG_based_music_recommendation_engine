@@ -1,26 +1,19 @@
+import { Recommendation } from "@/lib/types";
+
 interface RecommendationCardProps {
-  title: string;
-  artist: string;
-  album: string;
-  genre: string[];
-  reason: string;
-  artworkUrl: string;
+  recommendation: Recommendation;
 }
 
-export function RecommendationCard({
-  title,
-  artist,
-  album,
-  genre,
-  reason,
-  artworkUrl,
-}: RecommendationCardProps) {
+export function RecommendationCard({ recommendation }: RecommendationCardProps) {
+  const { title, artist, album, genre, reason, artwork_url, similarity_score } =
+    recommendation;
+
   return (
-    <div className="flex gap-4 rounded-xl bg-gray-800/50 border border-gray-700/50 p-4">
+    <div className="flex gap-4 rounded-xl bg-gray-800/50 border border-gray-700/50 p-4 hover:bg-gray-800/80 transition-colors">
       <div className="w-20 h-20 flex-shrink-0 rounded-lg bg-gray-700 overflow-hidden">
-        {artworkUrl ? (
+        {artwork_url ? (
           <img
-            src={artworkUrl}
+            src={artwork_url}
             alt={`${title} artwork`}
             className="w-full h-full object-cover"
           />
@@ -31,7 +24,14 @@ export function RecommendationCard({
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <h3 className="font-semibold text-gray-100 truncate">{title}</h3>
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="font-semibold text-gray-100 truncate">{title}</h3>
+          {similarity_score > 0 && (
+            <span className="text-xs text-gray-500 whitespace-nowrap flex-shrink-0">
+              {Math.round(similarity_score * 100)}% match
+            </span>
+          )}
+        </div>
         <p className="text-gray-400 text-sm truncate">
           {artist}
           {album && ` · ${album}`}

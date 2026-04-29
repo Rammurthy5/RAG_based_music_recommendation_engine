@@ -67,15 +67,17 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 // HealthReady performs a deep check including downstream dependencies.
 func (h *Handler) HealthReady(w http.ResponseWriter, r *http.Request) {
 	ragHealth, err := h.ragClient.HealthCheck(r.Context())
+	cbState := h.ragClient.CircuitBreakerState()
 
 	resp := map[string]interface{}{
-		"status": "ready",
+		"status":          "ready",
+		"circuit_breaker": cbState,
 		"dependencies": map[string]interface{}{
 			"rag_service": "ok",
 		},
 	}
 
-	if err != nil {
+	if err != nil || cbState == "open" {
 		resp["status"] = "degraded"
 		resp["dependencies"] = map[string]interface{}{
 			"rag_service": "unavailable",
@@ -90,7 +92,13 @@ func (h *Handler) HealthReady(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	status := http.StatusOK
+	if resp["status"] == "degraded" {
+		status = http.StatusServiceUnavailable
+	}
+
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(resp)
 }
 

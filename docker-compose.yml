@@ -28,12 +28,19 @@ services:
     depends_on:
       weaviate:
         condition: service_healthy
+    restart: on-failure:3
     env_file:
       - .env
     environment:
       WEAVIATE_HOST: weaviate
       WEAVIATE_HTTP_PORT: "8080"
       WEAVIATE_GRPC_PORT: "50051"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   api-gateway:
     build:
@@ -42,10 +49,18 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - rag-service
+      rag-service:
+        condition: service_healthy
+    restart: on-failure:3
     environment:
       RAG_SERVICE_URL: "http://rag-service:8000"
       PORT: "8080"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--spider", "-q", "http://localhost:8080/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
 
   frontend:
     build:
@@ -54,7 +69,9 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - api-gateway
+      api-gateway:
+        condition: service_healthy
+    restart: on-failure:3
     environment:
       NEXT_PUBLIC_API_URL: "http://localhost:8080"
 
