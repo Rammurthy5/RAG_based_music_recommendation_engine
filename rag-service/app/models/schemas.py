@@ -29,7 +29,7 @@ class CostInfo(BaseModel):
 class RAGConfigInfo(BaseModel):
     top_k: int = 10
     chunk_size: int = 500
-    similarity_threshold: float = 0.65
+    similarity_threshold: float = 0.25
     embedding_model: str = "all-MiniLM-L6-v2"
 
 

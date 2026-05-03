@@ -12,7 +12,7 @@ Describe a mood, vibe, or moment in natural language — get personalized song r
 └───────────┘     └──────────────┘     └──────────────┘     └──────────┘
                                               │
                                               ▼
-                                        Claude (LLM)
+                                       Gemini (LLM)
 ```
 
 | Service | Language | Port | Role |
@@ -27,14 +27,14 @@ Describe a mood, vibe, or moment in natural language — get personalized song r
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
-- An [Anthropic API key](https://console.anthropic.com/)
+- A [Google API key](https://aistudio.google.com/apikey) (for Gemini LLM)
 - A [Genius API token](https://genius.com/api-clients) (for ingestion only)
 
 ### 1. Configure environment
 
 ```bash
 cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY and GENIUS_ACCESS_TOKEN
+# Edit .env and add your GOOGLE_API_KEY and GENIUS_ACCESS_TOKEN
 ```
 
 ### 2. Start all services
@@ -102,7 +102,7 @@ Gateway endpoint that proxies to the RAG service.
   "metadata": {
     "source": "full_rag",
     "prompt_id": "v1-default",
-    "model": "claude-sonnet-4-20250514",
+    "model": "gemini-2.5-flash",
     "rag_config": {
       "top_k": 10,
       "chunk_size": 500,
@@ -134,7 +134,7 @@ The system degrades gracefully through three tiers:
 | Source | Meaning | Trigger |
 |--------|---------|---------|
 | `full_rag` | Retrieval + LLM generation | Normal operation |
-| `retrieval_only` | Weaviate results, no LLM | Claude fails or circuit breaker open |
+| `retrieval_only` | Weaviate results, no LLM | Gemini fails or circuit breaker open |
 | `fallback_cache` | Static curated playlists | Weaviate unavailable |
 
 **Circuit breakers:** `pybreaker` wraps LLM calls (opens after 5 failures, resets after 60s). `gobreaker` in the Go gateway wraps rag-service calls.
@@ -219,11 +219,11 @@ All configuration is via environment variables. See [.env.example](.env.example)
 
 | Variable | Service | Default | Description |
 |----------|---------|---------|-------------|
-| `ANTHROPIC_API_KEY` | rag-service | — | **Required.** Claude API key |
+| `GOOGLE_API_KEY` | rag-service | — | **Required.** Gemini API key |
 | `GENIUS_ACCESS_TOKEN` | rag-service | — | Required for ingestion only |
 | `WEAVIATE_HOST` | rag-service | `weaviate` | Weaviate hostname |
 | `RAG_SERVICE_URL` | api-gateway | `http://rag-service:8000` | RAG service URL |
 | `PORT` | api-gateway | `8080` | Gateway listen port |
 | `RATE_LIMIT` | api-gateway | `20` | Requests per second |
 | `TOP_K` | rag-service | `10` | Number of vectors to retrieve |
-| `SIMILARITY_THRESHOLD` | rag-service | `0.65` | Minimum cosine similarity |
+| `SIMILARITY_THRESHOLD` | rag-service | `0.25` | Minimum cosine similarity |

@@ -1,6 +1,6 @@
 """LCEL RAG chain for music recommendations.
 
-Pipeline: embed query → nearVector retrieval → format context → prompt → Claude → parse JSON
+Pipeline: embed query → nearVector retrieval → format context → prompt → Gemini → parse JSON
 
 Graceful degradation:
   - LLM fails / circuit open → return retrieval-only results with source="retrieval_only"
@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 
 import pybreaker
-from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.output_parsers import StrOutputParser
 
 from app.config import settings
@@ -36,11 +37,11 @@ from app.resilience import (
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = "claude-sonnet-4-20250514"
+MODEL_NAME = "gemini-2.5-flash"
 
-# Cost per token (Claude Sonnet pricing as of 2025)
-_INPUT_COST_PER_TOKEN = 3.0 / 1_000_000  # $3 per 1M input tokens
-_OUTPUT_COST_PER_TOKEN = 15.0 / 1_000_000  # $15 per 1M output tokens
+# Cost per token (Gemini 2.5 Flash pricing)
+_INPUT_COST_PER_TOKEN = 0.15 / 1_000_000  # $0.15 per 1M input tokens
+_OUTPUT_COST_PER_TOKEN = 0.60 / 1_000_000  # $0.60 per 1M output tokens
 
 
 def _format_context(tracks: list[RetrievedTrack]) -> str:
@@ -77,19 +78,52 @@ def _enforce_diversity(
 
 
 def _parse_llm_output(text: str) -> list[dict]:
-    """Parse JSON array from LLM response, handling markdown fences."""
+    """Parse JSON array from LLM response.
+
+    Handles: markdown fences, thinking tags, preamble/postamble text.
+    Extracts the first JSON array found anywhere in the response.
+    """
+    original = text
     text = text.strip()
-    if text.startswith("```"):
-        # Strip markdown code fences
-        lines = text.split("\n")
-        text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
-        text = text.strip()
+
+    # Strip markdown code fences (```json ... ``` or ``` ... ```)
+    if "```" in text:
+        match = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
+        if match:
+            text = match.group(1).strip()
+
+    # Try direct parse first
     try:
         result = json.loads(text)
         if isinstance(result, list):
             return result
     except json.JSONDecodeError:
-        logger.warning("Failed to parse LLM JSON output: %s", text[:200])
+        pass
+
+    # Fallback: find the first JSON array in the text using bracket matching
+    start = text.find("[")
+    if start != -1:
+        # Find the matching closing bracket
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "[":
+                depth += 1
+            elif text[i] == "]":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start : i + 1]
+                    try:
+                        result = json.loads(candidate)
+                        if isinstance(result, list):
+                            return result
+                    except json.JSONDecodeError:
+                        break
+
+    logger.warning(
+        "Failed to parse LLM JSON output. First 200 chars: %s ... Last 200 chars: %s",
+        original[:200],
+        original[-200:],
+    )
     return []
 
 
@@ -164,6 +198,11 @@ async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
     # --- Step 1: Retrieve from Weaviate ---
     try:
         tracks = weaviate_retry(search_tracks)(query)
+        logger.info(
+            "Weaviate returned %d tracks above threshold for query: %s",
+            len(tracks),
+            query[:80],
+        )
     except Exception as exc:
         logger.error("Weaviate retrieval failed: %s", exc)
         latency_ms = int((time.perf_counter() - start) * 1000)
@@ -180,11 +219,11 @@ async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
 
         @llm_breaker
         def _call_llm() -> dict:
-            llm = ChatAnthropic(
+            llm = ChatGoogleGenerativeAI(
                 model=MODEL_NAME,
-                api_key=settings.anthropic_api_key,
+                google_api_key=settings.google_api_key,
                 timeout=settings.llm_timeout,
-                max_tokens=2048,
+                max_output_tokens=2048,
             )
             chain = recommendation_prompt | llm | StrOutputParser()
             result = chain.invoke(
@@ -209,40 +248,45 @@ async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
     parsed = _parse_llm_output(raw_text)
     parsed = _enforce_diversity(parsed)
 
-    recommendations = [
-        Recommendation(
-            title=r.get("title", ""),
-            artist=r.get("artist", ""),
-            album=r.get("album", ""),
-            genre=r.get("genre", []),
-            reason=r.get("reason", ""),
-            similarity_score=next(
-                (
-                    t.similarity_score
-                    for t in tracks
-                    if t.title.lower() == r.get("title", "").lower()
+    recommendations = []
+    for r in parsed[:limit]:
+        # Gemini may return genre as a comma-separated string instead of a list
+        genre_val = r.get("genre", [])
+        if isinstance(genre_val, str):
+            genre_val = [g.strip() for g in genre_val.split(",") if g.strip()]
+
+        recommendations.append(
+            Recommendation(
+                title=r.get("title", ""),
+                artist=r.get("artist", ""),
+                album=r.get("album", ""),
+                genre=genre_val,
+                reason=r.get("reason", ""),
+                similarity_score=next(
+                    (
+                        t.similarity_score
+                        for t in tracks
+                        if t.title.lower() == r.get("title", "").lower()
+                    ),
+                    0.0,
                 ),
-                0.0,
-            ),
-            track_id=next(
-                (
-                    t.musicbrainz_id
-                    for t in tracks
-                    if t.title.lower() == r.get("title", "").lower()
+                track_id=next(
+                    (
+                        t.musicbrainz_id
+                        for t in tracks
+                        if t.title.lower() == r.get("title", "").lower()
+                    ),
+                    "",
                 ),
-                "",
-            ),
+            )
         )
-        for r in parsed[:limit]
-    ]
 
     # Token usage from the LLM (approximate via last call metadata)
     input_tokens = 0
     output_tokens = 0
     try:
-        # langchain-anthropic exposes usage via callback; we estimate here
-        input_tokens = llm_instance._get_num_tokens(context + query)
-        output_tokens = llm_instance._get_num_tokens(raw_text)
+        input_tokens = llm_instance.get_num_tokens(context + query)
+        output_tokens = llm_instance.get_num_tokens(raw_text)
     except Exception:
         pass
 

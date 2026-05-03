@@ -36,12 +36,53 @@ logger = logging.getLogger(__name__)
 # Batch size for embedding + Weaviate upserts
 EMBED_BATCH_SIZE = 64
 
+# Genre/tag → mood descriptors to enrich embeddings for mood-based retrieval.
+# Multiple descriptors per genre ensure the embedding captures emotional nuance.
+GENRE_MOOD_MAP: dict[str, str] = {
+    "rock": "energetic powerful driving intense",
+    "pop": "upbeat catchy cheerful bright fun",
+    "alternative rock": "moody atmospheric introspective emotional",
+    "britpop": "anthemic uplifting melodic nostalgic british",
+    "post-britpop": "emotional atmospheric anthemic dreamy",
+    "pop rock": "upbeat melodic catchy feel-good singalong",
+    "art rock": "experimental atmospheric creative cinematic",
+    "alternative": "moody atmospheric edgy thoughtful unconventional",
+    "indie": "introspective quirky atmospheric dreamy creative",
+    "electronic": "pulsating synthetic futuristic danceable hypnotic",
+    "ambient": "calm ethereal spacious meditative peaceful serene",
+    "tamil": "melodic emotional expressive vibrant soulful indian",
+    "tamil film": "cinematic dramatic emotional romantic expressive indian",
+    "tamil cinema": "cinematic dramatic romantic emotional expressive",
+    "kollywood": "dramatic vibrant energetic emotional cinematic indian",
+    "tamil pop": "upbeat catchy modern indian vibrant",
+    "carnatic": "classical spiritual meditative intricate devotional indian",
+    "indian": "spiritual melodic vibrant diverse cultural",
+    "filmi": "dramatic romantic emotional cinematic expressive bollywood",
+    "film score": "cinematic dramatic emotional orchestral atmospheric",
+    "soundtrack": "cinematic emotional atmospheric mood-setting",
+    "classical": "elegant grand dramatic contemplative refined",
+    "soul": "emotional heartfelt warm passionate deep",
+    "folk": "gentle acoustic intimate earthy reflective",
+    "dance": "euphoric energetic upbeat party celebratory",
+    "world": "cultural diverse exotic rhythmic spiritual",
+}
+
+
+def _derive_mood_descriptors(genres: list[str]) -> str:
+    """Derive mood/vibe descriptors from genre tags."""
+    moods: list[str] = []
+    for genre in genres:
+        key = genre.lower().strip()
+        if key in GENRE_MOOD_MAP:
+            moods.append(GENRE_MOOD_MAP[key])
+    return " ".join(moods)
+
 
 def build_content(track: TrackMetadata, lyrics_excerpt: str) -> str:
     """Create the text passage that will be embedded.
 
-    Combines title, artist, album, genres, and a lyrics excerpt into a single
-    string optimised for semantic search on moods/vibes.
+    Combines title, artist, album, genres, mood descriptors, and a lyrics
+    excerpt into a single string optimised for semantic search on moods/vibes.
     """
     parts: list[str] = [
         f'"{track.title}" by {track.artist}.',
@@ -50,6 +91,10 @@ def build_content(track: TrackMetadata, lyrics_excerpt: str) -> str:
         parts.append(f"Album: {track.album}.")
     if track.genres:
         parts.append(f"Genres: {', '.join(track.genres)}.")
+    # Mood descriptors derived from genres — critical for mood-based retrieval
+    mood_desc = _derive_mood_descriptors(track.genres)
+    if mood_desc:
+        parts.append(f"Mood and vibe: {mood_desc}.")
     if track.release_year:
         parts.append(f"Released: {track.release_year}.")
     if lyrics_excerpt:

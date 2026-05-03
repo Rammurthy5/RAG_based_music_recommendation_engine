@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    anthropic_api_key: str = ""
+    google_api_key: str = ""
     genius_access_token: str = ""
     weaviate_host: str = "weaviate"
     weaviate_http_port: int = 8080
@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # RAG defaults
     top_k: int = 10
-    similarity_threshold: float = 0.65
+    similarity_threshold: float = 0.25
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

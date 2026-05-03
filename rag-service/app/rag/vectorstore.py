@@ -118,7 +118,22 @@ def search_tracks(
             content=props.get("content", ""),
             distance=distance,
         )
+        logger.debug(
+            "Track '%s' by %s — distance=%.4f similarity=%.4f (threshold=%.2f)",
+            track.title, track.artist, distance, track.similarity_score, similarity_threshold,
+        )
         if track.similarity_score >= similarity_threshold:
             tracks.append(track)
+
+    if not tracks and results.objects:
+        best = min(results.objects, key=lambda o: o.metadata.distance or 1.0)
+        logger.warning(
+            "All %d tracks below threshold %.2f. Best distance=%.4f (similarity=%.4f). "
+            "Consider lowering similarity_threshold.",
+            len(results.objects),
+            similarity_threshold,
+            best.metadata.distance,
+            1.0 - (best.metadata.distance or 1.0),
+        )
 
     return tracks

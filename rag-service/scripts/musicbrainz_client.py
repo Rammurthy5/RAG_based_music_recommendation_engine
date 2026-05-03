@@ -46,29 +46,17 @@ class TrackMetadata:
     musicbrainz_id: str = ""
 
 
-# Seed queries spanning a variety of moods and genres
+# Seed queries: Coldplay + Tamil music
 DEFAULT_SEED_QUERIES: list[dict[str, str]] = [
-    # Genre tags
-    {"tag": "rock"},
-    {"tag": "pop"},
-    {"tag": "jazz"},
-    {"tag": "hip hop"},
-    {"tag": "electronic"},
-    {"tag": "classical"},
-    {"tag": "r&b"},
-    {"tag": "soul"},
-    {"tag": "blues"},
-    {"tag": "country"},
-    {"tag": "folk"},
-    {"tag": "metal"},
-    {"tag": "reggae"},
-    {"tag": "punk"},
-    {"tag": "indie"},
-    {"tag": "alternative"},
-    {"tag": "latin"},
-    {"tag": "funk"},
-    {"tag": "ambient"},
-    {"tag": "world"},
+    # Coldplay — fetch by artist name
+    {"artist": "Coldplay"},
+    # Tamil music — fetch by tags
+    {"tag": "tamil"},
+    {"tag": "tamil film"},
+    {"tag": "tamil cinema"},
+    {"tag": "kollywood"},
+    {"tag": "tamil pop"},
+    {"tag": "carnatic"},
 ]
 
 
@@ -109,24 +97,8 @@ def _extract_release_info(recording: dict) -> tuple[str, int]:
     return album, year
 
 
-def search_recordings_by_tag(
-    tag: str, limit: int = 25, offset: int = 0
-) -> list[TrackMetadata]:
-    """Search MusicBrainz for recordings tagged with *tag*.
-
-    Returns up to *limit* TrackMetadata objects.
-    """
-    _rate_limit()
-    try:
-        result = musicbrainzngs.search_recordings(
-            tag=tag,
-            limit=limit,
-            offset=offset,
-        )
-    except musicbrainzngs.WebServiceError as exc:
-        logger.warning("MusicBrainz search failed for tag '%s': %s", tag, exc)
-        return []
-
+def _parse_recordings(result: dict) -> list[TrackMetadata]:
+    """Parse MusicBrainz recording search results into TrackMetadata."""
     tracks: list[TrackMetadata] = []
     for rec in result.get("recording-list", []):
         title = rec.get("title", "").strip()
@@ -150,6 +122,40 @@ def search_recordings_by_tag(
     return tracks
 
 
+def search_recordings_by_tag(
+    tag: str, limit: int = 25, offset: int = 0
+) -> list[TrackMetadata]:
+    """Search MusicBrainz for recordings tagged with *tag*."""
+    _rate_limit()
+    try:
+        result = musicbrainzngs.search_recordings(
+            tag=tag,
+            limit=limit,
+            offset=offset,
+        )
+    except musicbrainzngs.WebServiceError as exc:
+        logger.warning("MusicBrainz search failed for tag '%s': %s", tag, exc)
+        return []
+    return _parse_recordings(result)
+
+
+def search_recordings_by_artist(
+    artist: str, limit: int = 25, offset: int = 0
+) -> list[TrackMetadata]:
+    """Search MusicBrainz for recordings by a specific artist name."""
+    _rate_limit()
+    try:
+        result = musicbrainzngs.search_recordings(
+            artist=artist,
+            limit=limit,
+            offset=offset,
+        )
+    except musicbrainzngs.WebServiceError as exc:
+        logger.warning("MusicBrainz search failed for artist '%s': %s", artist, exc)
+        return []
+    return _parse_recordings(result)
+
+
 def fetch_all_seeds(
     seeds: list[dict[str, str]] | None = None,
     per_seed: int = 25,
@@ -166,10 +172,15 @@ def fetch_all_seeds(
 
     for seed in seeds:
         tag = seed.get("tag", "")
-        if not tag:
+        artist = seed.get("artist", "")
+        if artist:
+            logger.info("Fetching MusicBrainz recordings for artist: %s", artist)
+            tracks = search_recordings_by_artist(artist, limit=per_seed)
+        elif tag:
+            logger.info("Fetching MusicBrainz recordings for tag: %s", tag)
+            tracks = search_recordings_by_tag(tag, limit=per_seed)
+        else:
             continue
-        logger.info("Fetching MusicBrainz recordings for tag: %s", tag)
-        tracks = search_recordings_by_tag(tag, limit=per_seed)
         for t in tracks:
             if t.musicbrainz_id and t.musicbrainz_id in seen_ids:
                 continue
