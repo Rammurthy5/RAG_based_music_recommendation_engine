@@ -12,7 +12,7 @@ Describe a mood, vibe, or moment in natural language — get personalized song r
 └───────────┘     └──────────────┘     └──────────────┘     └──────────┘
                                               │
                                               ▼
-                                       Gemini (LLM)
+                                   Gemini / OpenAI (LLM)
 ```
 
 | Service | Language | Port | Role |
@@ -27,14 +27,15 @@ Describe a mood, vibe, or moment in natural language — get personalized song r
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
-- A [Google API key](https://aistudio.google.com/apikey) (for Gemini LLM)
+- A [Google API key](https://aistudio.google.com/apikey) (for Gemini)
+- An [OpenAI API key](https://platform.openai.com/) (for OpenAI provider mode)
 - A [Genius API token](https://genius.com/api-clients) (for ingestion only)
 
 ### 1. Configure environment
 
 ```bash
 cp .env.example .env
-# Edit .env and add your GOOGLE_API_KEY and GENIUS_ACCESS_TOKEN
+# Edit .env and choose LLM_PROVIDER plus the matching API key
 ```
 
 ### 2. Start all services
@@ -101,12 +102,13 @@ Gateway endpoint that proxies to the RAG service.
   ],
   "metadata": {
     "source": "full_rag",
+    "provider": "gemini",
     "prompt_id": "v1-default",
     "model": "gemini-3.5-flash",
     "rag_config": {
       "top_k": 10,
       "chunk_size": 500,
-      "similarity_threshold": 0.35,
+      "similarity_threshold": 0.15,
       "embedding_model": "all-MiniLM-L6-v2"
     },
     "cost": {
@@ -134,7 +136,7 @@ The system degrades gracefully through three tiers:
 | Source | Meaning | Trigger |
 |--------|---------|---------|
 | `full_rag` | Retrieval + LLM generation | Normal operation |
-| `retrieval_only` | Weaviate results, no LLM | Gemini fails or circuit breaker open |
+| `retrieval_only` | Weaviate results, no LLM | Selected LLM fails or circuit breaker open |
 | `fallback_cache` | Static curated playlists | Weaviate unavailable |
 
 **Circuit breakers:** `pybreaker` wraps LLM calls (opens after 5 failures, resets after 60s). `gobreaker` in the Go gateway wraps rag-service calls.
@@ -219,7 +221,11 @@ All configuration is via environment variables. See [.env.example](.env.example)
 
 | Variable | Service | Default | Description |
 |----------|---------|---------|-------------|
-| `GOOGLE_API_KEY` | rag-service | — | **Required.** Gemini API key |
+| `LLM_PROVIDER` | rag-service | `gemini` | Selects `gemini` or `openai` |
+| `GOOGLE_API_KEY` | rag-service | — | Required when `LLM_PROVIDER=gemini` |
+| `OPENAI_API_KEY` | rag-service | — | Required when `LLM_PROVIDER=openai` |
+| `GEMINI_MODEL` | rag-service | `gemini-3.5-flash` | Gemini model name |
+| `OPENAI_MODEL` | rag-service | `gpt-5.4-mini` | OpenAI model name |
 | `GENIUS_ACCESS_TOKEN` | rag-service | — | Required for ingestion only |
 | `WEAVIATE_HOST` | rag-service | `weaviate` | Weaviate hostname |
 | `RAG_SERVICE_URL` | api-gateway | `http://rag-service:8000` | RAG service URL |

@@ -10,8 +10,13 @@ const SOURCE_LABELS: Record<ResponseMetadata["source"], string> = {
   fallback_cache: "Fallback Cache",
 };
 
+const PROVIDER_LABELS: Record<string, string> = {
+  gemini: "Gemini",
+  openai: "OpenAI",
+};
+
 export function MetadataBar({ metadata }: MetadataBarProps) {
-  const { source, model, latency_ms, cost } = metadata;
+  const { source, provider, model, latency_ms, cost } = metadata;
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mt-2 px-1">
@@ -26,6 +31,9 @@ export function MetadataBar({ metadata }: MetadataBarProps) {
       >
         {SOURCE_LABELS[source]}
       </span>
+      {provider && (
+        <span>Provider: {PROVIDER_LABELS[provider] || provider}</span>
+      )}
       {model && <span>Model: {model}</span>}
       {latency_ms > 0 && <span>{(latency_ms / 1000).toFixed(1)}s</span>}
       {cost.total_cost_usd > 0 && (

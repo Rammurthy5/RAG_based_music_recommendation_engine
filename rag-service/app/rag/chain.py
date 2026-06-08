@@ -16,7 +16,6 @@ import time
 from dataclasses import dataclass, field
 
 import pybreaker
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.output_parsers import StrOutputParser
 
 from app.config import settings
@@ -28,6 +27,7 @@ from app.models.schemas import (
     ResponseMetadata,
 )
 from app.rag.prompts import PROMPT_ID, recommendation_prompt
+from app.rag.provider_factory import build_llm
 from app.rag.vectorstore import RetrievedTrack, search_tracks
 from app.resilience import (
     get_fallback_recommendations,
@@ -36,8 +36,6 @@ from app.resilience import (
 )
 
 logger = logging.getLogger(__name__)
-
-MODEL_NAME = "gemini-3.5-flash"
 
 # Cost per token (Gemini 2.5 Flash pricing)
 _INPUT_COST_PER_TOKEN = 0.15 / 1_000_000  # $0.15 per 1M input tokens
@@ -100,24 +98,40 @@ def _parse_llm_output(text: str) -> list[dict]:
     except json.JSONDecodeError:
         pass
 
-    # Fallback: find the first JSON array in the text using bracket matching
+    # Fallback: find the first JSON array in the text and parse as many
+    # complete objects as possible. This salvages truncated responses.
     start = text.find("[")
     if start != -1:
-        # Find the matching closing bracket
-        depth = 0
-        for i in range(start, len(text)):
-            if text[i] == "[":
-                depth += 1
-            elif text[i] == "]":
-                depth -= 1
-                if depth == 0:
-                    candidate = text[start : i + 1]
-                    try:
-                        result = json.loads(candidate)
-                        if isinstance(result, list):
-                            return result
-                    except json.JSONDecodeError:
-                        break
+        candidate = text[start:]
+        try:
+            result = json.loads(candidate)
+            if isinstance(result, list):
+                return result
+        except json.JSONDecodeError:
+            pass
+
+        recovered: list[dict] = []
+        decoder = json.JSONDecoder()
+        idx = 1  # Skip the opening "["
+        while idx < len(candidate):
+            while idx < len(candidate) and candidate[idx] in " \t\r\n,":
+                idx += 1
+            if idx >= len(candidate) or candidate[idx] == "]":
+                break
+            try:
+                value, next_idx = decoder.raw_decode(candidate, idx)
+            except json.JSONDecodeError:
+                break
+            if isinstance(value, dict):
+                recovered.append(value)
+            idx = next_idx
+
+        if recovered:
+            logger.warning(
+                "Recovered %d recommendations from partial LLM JSON output.",
+                len(recovered),
+            )
+            return recovered
 
     logger.warning(
         "Failed to parse LLM JSON output. First 200 chars: %s ... Last 200 chars: %s",
@@ -216,20 +230,15 @@ async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
     context = _format_context(tracks)
 
     try:
+        llm_bundle = build_llm()
 
         @llm_breaker
         def _call_llm() -> dict:
-            llm = ChatGoogleGenerativeAI(
-                model=MODEL_NAME,
-                google_api_key=settings.google_api_key,
-                timeout=settings.llm_timeout,
-                max_output_tokens=2048,
-            )
-            chain = recommendation_prompt | llm | StrOutputParser()
+            chain = recommendation_prompt | llm_bundle.llm | StrOutputParser()
             result = chain.invoke(
                 {"query": query, "limit": limit, "context": context}
             )
-            return {"text": result, "llm": llm}
+            return {"text": result, "llm": llm_bundle.llm}
 
         output = _call_llm()
         raw_text = output["text"]
@@ -301,8 +310,9 @@ async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
         recommendations=recommendations,
         metadata=ResponseMetadata(
             source="full_rag",
+            provider=llm_bundle.provider,
             prompt_id=PROMPT_ID,
-            model=MODEL_NAME,
+            model=llm_bundle.model,
             rag_config=RAGConfigInfo(
                 top_k=settings.top_k,
                 similarity_threshold=settings.similarity_threshold,

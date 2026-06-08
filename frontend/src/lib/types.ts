@@ -24,6 +24,7 @@ export interface RAGConfigInfo {
 
 export interface ResponseMetadata {
   source: "full_rag" | "retrieval_only" | "fallback_cache";
+  provider: string;
   prompt_id: string;
   model: string;
   rag_config: RAGConfigInfo;

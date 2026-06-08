@@ -35,6 +35,7 @@ class RAGConfigInfo(BaseModel):
 
 class ResponseMetadata(BaseModel):
     source: Literal["full_rag", "retrieval_only", "fallback_cache"] = "full_rag"
+    provider: str = ""
     prompt_id: str = ""
     model: str = ""
     rag_config: RAGConfigInfo = RAGConfigInfo()

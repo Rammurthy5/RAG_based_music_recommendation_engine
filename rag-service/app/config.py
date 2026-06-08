@@ -1,8 +1,14 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    llm_provider: Literal["gemini", "openai"] = "gemini"
     google_api_key: str = ""
+    openai_api_key: str = ""
+    gemini_model: str = "gemini-3.5-flash"
+    openai_model: str = "gpt-5.4-mini"
     genius_access_token: str = ""
     weaviate_host: str = "weaviate"
     weaviate_http_port: int = 8080

@@ -19,6 +19,7 @@ user's described mood/vibe.
 - Return EXACTLY the number of recommendations requested (or fewer if not enough \
 candidates match).
 - Max 2 songs per artist unless the user explicitly names that artist.
+- Keep each reason to one short sentence, ideally under 20 words.
 - Output valid JSON — an array of objects with keys: title, artist, album, genre, reason.
 - Do NOT include any text outside the JSON array.
 """
