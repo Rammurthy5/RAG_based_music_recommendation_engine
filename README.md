@@ -102,11 +102,11 @@ Gateway endpoint that proxies to the RAG service.
   "metadata": {
     "source": "full_rag",
     "prompt_id": "v1-default",
-    "model": "gemini-2.5-flash",
+    "model": "gemini-3.5-flash",
     "rag_config": {
       "top_k": 10,
       "chunk_size": 500,
-      "similarity_threshold": 0.65,
+      "similarity_threshold": 0.35,
       "embedding_model": "all-MiniLM-L6-v2"
     },
     "cost": {

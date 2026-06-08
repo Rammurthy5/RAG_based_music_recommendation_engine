@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # RAG defaults
     top_k: int = 10
-    similarity_threshold: float = 0.25
+    similarity_threshold: float = 0.15
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

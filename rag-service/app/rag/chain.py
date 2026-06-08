@@ -37,7 +37,7 @@ from app.resilience import (
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3.5-flash"
 
 # Cost per token (Gemini 2.5 Flash pricing)
 _INPUT_COST_PER_TOKEN = 0.15 / 1_000_000  # $0.15 per 1M input tokens
