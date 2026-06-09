@@ -2,6 +2,9 @@
 
 Describe a mood, vibe, or moment in natural language — get personalized song recommendations powered by Retrieval-Augmented Generation.
 
+> **Retrieval stack:** query intent expansion -> Weaviate `near_vector` search -> duplicate merge -> heuristic rerank -> LLM grounded on retrieved tracks.  
+> **RAGAS target:** Faithfulness `0.70+`, Answer Relevancy `0.70+`, Context Recall `0.70+`, Context Precision `0.70+`.
+
 ## Architecture
 
 ```
