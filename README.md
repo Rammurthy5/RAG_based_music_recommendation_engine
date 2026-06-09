@@ -1,276 +1,33 @@
 # 🎵 RAG Music Recommendation Engine
 
-Describe a mood, vibe, or moment in natural language — get personalized song recommendations powered by Retrieval-Augmented Generation.
+Describe a mood, vibe, or moment in natural language and get personalized song recommendations powered by Retrieval-Augmented Generation.
 
 > **Retrieval stack:** query intent expansion -> Weaviate `near_vector` search -> duplicate merge -> heuristic rerank -> LLM grounded on retrieved tracks.  
 > **RAGAS target:** Faithfulness `0.70+`, Answer Relevancy `0.70+`, Context Recall `0.70+`, Context Precision `0.70+`.
 
-## Architecture
+## Project Definition
 
-```
-┌───────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────┐
-│  Frontend  │────▶│  API Gateway  │────▶│  RAG Service  │────▶│ Weaviate │
-│  (Next.js) │◀────│   (Go/chi)   │◀────│  (FastAPI)    │◀────│ (Vector) │
-│   :3000    │     │    :8080      │     │    :8000      │     │  :8085   │
-└───────────┘     └──────────────┘     └──────────────┘     └──────────┘
-                                              │
-                                              ▼
-                                   Gemini / OpenAI (LLM)
-```
+This project is a full-stack music recommender built around a RAG service, an API gateway, and a Next.js frontend. The system turns a short natural-language prompt into track recommendations, keeps the response schema stable for clients, and records metadata such as provider, cost, latency, and evaluation metrics.
 
-| Service | Language | Port | Role |
-|---------|----------|------|------|
-| **frontend** | TypeScript (Next.js 15) | 3000 | Search UI with recommendation cards |
-| **api-gateway** | Go (chi router) | 8080 | Proxy, CORS, rate limiting, circuit breaker |
-| **rag-service** | Python (FastAPI) | 8000 | RAG pipeline: embed → retrieve → generate |
-| **weaviate** | — | 8085 (host) / 8080 (container) | Vector database |
+## Data Processing
 
-## Quick Start
+The corpus is built from public music metadata and short lyric excerpts.
 
-### Prerequisites
+- **Sources:** MusicBrainz for track metadata and Genius for lyric snippets or URLs during ingestion.
+- **Guardrails:** ingestion uses official APIs, rate limits, schema-controlled Weaviate writes, and prompt grounding so the LLM can only recommend tracks from retrieved context.
+- **PII handling:** the codebase does not include a dedicated PII extraction or redaction pipeline. User queries are treated as transient request text, and the stored dataset is track-level music metadata rather than user profiles.
 
-- [Docker](https://docs.docker.com/get-docker/) and Docker Compose
-- A [Google API key](https://aistudio.google.com/apikey) (for Gemini)
-- An [OpenAI API key](https://platform.openai.com/) (for OpenAI provider mode)
-- A [Genius API token](https://genius.com/api-clients) (for ingestion only)
+## Evals
 
-### 1. Configure environment
+Evaluation is task-specific and centered on recommendation quality rather than generic text generation.
 
-```bash
-cp .env.example .env
-# Edit .env and choose LLM_PROVIDER plus the matching API key
-```
+- **Task-specific:** labeled eval queries map to reference tracks so retrieval and grounding can be checked against known targets.
+- **Error handling:** when recommendations or references are missing, the metric code degrades gracefully instead of failing the request.
+- **Cost:** token usage and estimated LLM cost are included in response metadata.
+- **Latency:** end-to-end request latency is included in response metadata.
+- **Metrics:** Faithfulness, Answer Relevancy, Context Recall, and Context Precision are computed and exposed through `metadata.eval_metrics`.
 
-### 2. Start all services
+## Docs
 
-```bash
-docker-compose up --build
-```
-
-Wait for all health checks to pass. You'll see the services start in dependency order:
-Weaviate → rag-service → api-gateway → frontend.
-
-### 3. Create the Weaviate schema (first time only)
-
-```bash
-docker-compose exec rag-service python -m scripts.create_schema
-```
-
-### 4. Ingest music data
-
-```bash
-docker-compose exec rag-service python -m scripts.ingest
-```
-
-This fetches metadata from MusicBrainz and lyrics excerpts from Genius, chunks and embeds them, then stores vectors in Weaviate.
-
-### 5. Open the app
-
-Visit **http://localhost:3000** and describe a vibe!
-
-## API Reference
-
-### `POST /api/recommend`
-
-Gateway endpoint that proxies to the RAG service.
-
-**Request:**
-```json
-{
-  "query": "uplifting morning music with tropical vibes",
-  "limit": 5
-}
-```
-
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| `query` | string | yes | 1–500 characters |
-| `limit` | integer | no | 1–20 (default: 5) |
-
-**Response:**
-```json
-{
-  "query": "uplifting morning music with tropical vibes",
-  "recommendations": [
-    {
-      "title": "Walking on Sunshine",
-      "artist": "Katrina & The Waves",
-      "album": "Walking on Sunshine",
-      "genre": ["pop", "dance"],
-      "reason": "Captures the uplifting energy and tropical feel you described.",
-      "artwork_url": "",
-      "track_id": "abc123",
-      "similarity_score": 0.87
-    }
-  ],
-  "metadata": {
-    "source": "full_rag",
-    "provider": "gemini",
-    "prompt_id": "v1-default",
-    "model": "gemini-3.5-flash",
-    "rag_config": {
-      "top_k": 10,
-      "chunk_size": 500,
-      "similarity_threshold": 0.15,
-      "embedding_model": "all-MiniLM-L6-v2"
-    },
-    "cost": {
-      "input_tokens": 450,
-      "output_tokens": 120,
-      "total_cost_usd": 0.00231
-    },
-    "eval_metrics": {
-      "faithfulness": 0.91,
-      "answer_relevancy": 0.82,
-      "context_recall": 1.0,
-      "context_precision": 0.5
-    },
-    "latency_ms": 1240
-  }
-}
-```
-
-### `GET /api/health`
-
-Liveness check. Returns `{"status": "ok"}`.
-
-### `GET /api/health/ready`
-
-Deep readiness check including Weaviate connectivity and circuit breaker state.
-
-## Resilience
-
-The system degrades gracefully through three tiers:
-
-| Source | Meaning | Trigger |
-|--------|---------|---------|
-| `full_rag` | Retrieval + LLM generation | Normal operation |
-| `retrieval_only` | Weaviate results, no LLM | Selected LLM fails or circuit breaker open |
-| `fallback_cache` | Static curated playlists | Weaviate unavailable |
-
-**Circuit breakers:** `pybreaker` wraps LLM calls (opens after 5 failures, resets after 60s). `gobreaker` in the Go gateway wraps rag-service calls.
-
-**Rate limiting:** 20 req/s with burst of 40 at the gateway.
-
-**Timeouts:** Weaviate 5s, LLM 15s, embedding 30s (cold) / 2s (warm), gateway → rag-service 35s.
-
-## Evaluation
-
-The RAG service now computes four lightweight quality metrics and includes
-them in `metadata.eval_metrics` when it has enough information:
-
-- `faithfulness`
-- `answer_relevancy`
-- `context_recall`
-- `context_precision`
-
-For labeled eval queries, the service loads reference tracks from
-[rag-service/data/eval_set.json](rag-service/data/eval_set.json) and uses them
-to populate context recall and context precision. The current test harness is
-covered by `rag-service/tests/test_evaluation.py`.
-
-### Current snapshot
-
-The offline summary script in `rag-service/scripts/evaluate.py` averages the
-metric values across the labeled eval set. Run it from `rag-service` with a
-Python 3.13 environment to refresh the snapshot. In this workspace, the live
-Weaviate-backed stack was rebuilt and reingested before the latest run:
-
-| Metric | Mean |
-|--------|------|
-| Faithfulness | 1.0000 |
-| Answer relevancy | 0.7203 |
-| Context recall | 1.0000 |
-| Context precision | 1.0000 |
-
-Run the summary again after bringing the full stack up and reingesting to
-refresh the numbers.
-
-## Development
-
-### Run services individually
-
-```bash
-# Python RAG service
-cd rag-service && pip install -r requirements.txt && uvicorn app.main:app --reload
-
-# Go gateway
-cd api-gateway && go run ./cmd/server
-
-# Frontend
-cd frontend && npm run dev
-```
-
-### Run tests
-
-```bash
-# Python
-cd rag-service && pytest
-
-# Go
-cd api-gateway && go test ./...
-```
-
-## Project Structure
-
-```
-├── docker-compose.yml
-├── .env.example
-├── rag-service/
-│   ├── app/
-│   │   ├── main.py              # FastAPI app, health checks, middleware
-│   │   ├── config.py            # Pydantic settings
-│   │   ├── models/schemas.py    # Request/response Pydantic models
-│   │   ├── rag/
-│   │   │   ├── chain.py         # LCEL chain: retrieve → prompt → LLM → parse
-│   │   │   ├── vectorstore.py   # Weaviate nearVector search
-│   │   │   ├── embeddings.py    # HuggingFace all-MiniLM-L6-v2
-│   │   │   └── prompts.py       # Prompt templates
-│   │   ├── resilience/          # Circuit breaker, retry decorators, fallbacks
-│   │   └── routers/recommend.py # POST /recommend endpoint
-│   └── scripts/
-│       ├── create_schema.py     # Weaviate collection setup
-│       ├── ingest.py            # Ingestion orchestrator
-│       ├── musicbrainz_client.py# MusicBrainz metadata fetcher
-│       └── genius_fetcher.py    # Genius lyrics fetcher
-├── api-gateway/
-│   ├── cmd/server/main.go       # Entrypoint, middleware stack, routes
-│   ├── config/config.go         # Environment-based configuration
-│   └── internal/
-│       ├── client/rag_client.go # HTTP client with circuit breaker
-│       ├── handler/handler.go   # Request validation, proxy, health checks
-│       └── middleware/          # Rate limiter, logger, security headers, etc.
-└── frontend/
-    └── src/
-        ├── app/
-        │   ├── layout.tsx       # Root layout
-        │   ├── page.tsx         # Main page with search state management
-        │   └── globals.css      # Tailwind base styles
-        ├── components/
-        │   ├── SearchBar.tsx    # Query input form
-        │   ├── RecommendationCard.tsx  # Individual song card
-        │   ├── RecommendationList.tsx  # Card list container
-        │   └── MetadataBar.tsx  # Response source, latency, cost display
-        └── lib/
-            ├── types.ts         # TypeScript interfaces matching API contract
-            └── api.ts           # API client with abort support
-```
-
-## Configuration
-
-All configuration is via environment variables. See [.env.example](.env.example) for the full list.
-
-| Variable | Service | Default | Description |
-|----------|---------|---------|-------------|
-| `LLM_PROVIDER` | rag-service | `gemini` | Selects `gemini` or `openai` |
-| `GOOGLE_API_KEY` | rag-service | — | Required when `LLM_PROVIDER=gemini` |
-| `OPENAI_API_KEY` | rag-service | — | Required when `LLM_PROVIDER=openai` |
-| `GEMINI_MODEL` | rag-service | `gemini-3.5-flash` | Gemini model name |
-| `OPENAI_MODEL` | rag-service | `gpt-5.4-mini` | OpenAI model name |
-| `GENIUS_ACCESS_TOKEN` | rag-service | — | Required for ingestion only |
-| `WEAVIATE_HOST` | rag-service | `weaviate` | Weaviate hostname |
-| `RAG_SERVICE_URL` | api-gateway | `http://rag-service:8000` | RAG service URL |
-| `PORT` | api-gateway | `8080` | Gateway listen port |
-| `RATE_LIMIT` | api-gateway | `20` | Requests per second |
-| `TOP_K` | rag-service | `10` | Number of vectors to retrieve |
-| `SIMILARITY_THRESHOLD` | rag-service | `0.25` | Minimum cosine similarity |
+- [System Architecture](./SYSTEM_ARCHITECTURE.md)
+- [Setup and Usage](./SETUP_AND_USAGE.md)
