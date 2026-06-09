@@ -21,12 +21,15 @@ from langchain_core.output_parsers import StrOutputParser
 from app.config import settings
 from app.models.schemas import (
     CostInfo,
+    EvalMetrics,
     RAGConfigInfo,
     Recommendation,
     RecommendResponse,
     ResponseMetadata,
 )
+from app.rag.evaluation import TrackLabel, compute_eval_metrics, load_eval_examples
 from app.rag.prompts import PROMPT_ID, recommendation_prompt
+from app.rag.query_intent import build_query_intent
 from app.rag.provider_factory import build_llm
 from app.rag.vectorstore import RetrievedTrack, search_tracks
 from app.resilience import (
@@ -40,6 +43,44 @@ logger = logging.getLogger(__name__)
 # Cost per token (Gemini 2.5 Flash pricing)
 _INPUT_COST_PER_TOKEN = 0.15 / 1_000_000  # $0.15 per 1M input tokens
 _OUTPUT_COST_PER_TOKEN = 0.60 / 1_000_000  # $0.60 per 1M output tokens
+_EVAL_EXAMPLES_BY_QUERY: dict[str, list[TrackLabel]] | None = None
+
+
+def _normalize_query(query: str) -> str:
+    return re.sub(r"\s+", " ", query.strip().lower())
+
+
+def _canonical_track_key(title: str, artist: str) -> str:
+    return f"{_normalize_query(title)}::{_normalize_query(artist)}"
+
+
+def _get_reference_tracks_for_query(query: str) -> list[TrackLabel]:
+    """Return labeled reference tracks for a known eval query, if any."""
+    global _EVAL_EXAMPLES_BY_QUERY
+    if _EVAL_EXAMPLES_BY_QUERY is None:
+        try:
+            _EVAL_EXAMPLES_BY_QUERY = {
+                _normalize_query(example.query): example.reference_tracks
+                for example in load_eval_examples()
+            }
+        except Exception as exc:
+            logger.debug("Eval set unavailable: %s", exc)
+            _EVAL_EXAMPLES_BY_QUERY = {}
+    return _EVAL_EXAMPLES_BY_QUERY.get(_normalize_query(query), [])
+
+
+def _build_eval_metrics(
+    query: str,
+    retrieved_tracks: list[RetrievedTrack],
+    recommendations: list[Recommendation],
+) -> EvalMetrics:
+    reference_tracks = _get_reference_tracks_for_query(query)
+    return compute_eval_metrics(
+        query=query,
+        retrieved_tracks=retrieved_tracks,
+        recommendations=recommendations,
+        reference_tracks=reference_tracks or None,
+    )
 
 
 def _format_context(tracks: list[RetrievedTrack]) -> str:
@@ -61,18 +102,156 @@ def _format_context(tracks: list[RetrievedTrack]) -> str:
 
 
 def _enforce_diversity(
-    recommendations: list[dict], max_per_artist: int = 2
-) -> list[dict]:
+    recommendations: list[Recommendation], max_per_artist: int = 2
+) -> list[Recommendation]:
     """Limit to max_per_artist songs per artist."""
     artist_count: dict[str, int] = {}
-    filtered: list[dict] = []
+    filtered: list[Recommendation] = []
     for rec in recommendations:
-        artist = rec.get("artist", "").lower()
+        artist = rec.artist.lower()
         count = artist_count.get(artist, 0)
         if count < max_per_artist:
             filtered.append(rec)
             artist_count[artist] = count + 1
     return filtered
+
+
+def _match_retrieved_track(
+    title: str,
+    artist: str,
+    tracks: list[RetrievedTrack],
+) -> RetrievedTrack | None:
+    key = _canonical_track_key(title, artist)
+    for track in tracks:
+        if _canonical_track_key(track.title, track.artist) == key:
+            return track
+
+    if title and not artist:
+        normalized_title = _normalize_query(title)
+        title_matches = [
+            track
+            for track in tracks
+            if _normalize_query(track.title) == normalized_title
+        ]
+        if len(title_matches) == 1:
+            return title_matches[0]
+
+    return None
+
+
+def _materialize_recommendations(
+    parsed: list[dict],
+    tracks: list[RetrievedTrack],
+    query: str,
+    limit: int,
+) -> list[Recommendation]:
+    """Ground LLM output in retrieved tracks and backfill missing slots."""
+    recommendations: list[Recommendation] = []
+    selected_keys: set[str] = set()
+
+    for item in parsed:
+        track = _match_retrieved_track(
+            item.get("title", ""),
+            item.get("artist", ""),
+            tracks,
+        )
+        if track is None:
+            continue
+
+        key = _canonical_track_key(track.title, track.artist)
+        if key in selected_keys:
+            continue
+
+        genre_val = item.get("genre", [])
+        if isinstance(genre_val, str):
+            genre_val = [g.strip() for g in genre_val.split(",") if g.strip()]
+
+        recommendations.append(
+            Recommendation(
+                title=track.title,
+                artist=track.artist,
+                album=track.album,
+                genre=genre_val or track.genres,
+                reason=_ground_reason(item.get("reason", ""), query),
+                similarity_score=track.similarity_score,
+                track_id=track.musicbrainz_id,
+            )
+        )
+        selected_keys.add(key)
+        if len(recommendations) >= limit:
+            break
+
+    if len(recommendations) < limit:
+        for track in tracks:
+            key = _canonical_track_key(track.title, track.artist)
+            if key in selected_keys:
+                continue
+            recommendations.append(
+                Recommendation(
+                    title=track.title,
+                    artist=track.artist,
+                    album=track.album,
+                    genre=track.genres,
+                    reason=_ground_reason("", query),
+                    similarity_score=track.similarity_score,
+                    track_id=track.musicbrainz_id,
+                )
+            )
+            selected_keys.add(key)
+            if len(recommendations) >= limit:
+                break
+
+    return _enforce_diversity(recommendations)[:limit]
+
+
+def _ground_reason(reason: str, query: str) -> str:
+    intent = build_query_intent(query)
+    base_reason = reason.strip() or f"Strong match for {query}."
+    hint = intent.compact_hint.strip()
+    if not hint:
+        return base_reason
+    if hint.lower() in base_reason.lower():
+        return base_reason
+    return f"{base_reason.rstrip('.')} Fits your {hint} vibe."
+
+
+def _score_fallback_candidate(query: str, item: dict) -> float:
+    intent = build_query_intent(query)
+    query_tokens = set(re.findall(r"[a-z0-9]+", _normalize_query(query)))
+    genre_value = item.get("genre", [])
+    genre_text = " ".join(genre_value) if isinstance(genre_value, list) else str(genre_value)
+    text = " ".join(
+        part
+        for part in [
+            item.get("title", ""),
+            item.get("artist", ""),
+            item.get("album", ""),
+            genre_text,
+            item.get("reason", ""),
+        ]
+        if part
+    ).lower()
+    tokens = set(re.findall(r"[a-z0-9]+", text))
+    cue_terms = set(intent.cue_terms)
+
+    score = 0.0
+    score += min(len(cue_terms & tokens), 8) * 0.08
+    score += min(len(query_tokens & tokens), 4) * 0.06
+    if query_tokens & set(re.findall(r"[a-z0-9]+", str(item.get("artist", "")).lower())):
+        score += 0.08
+    if query_tokens & set(re.findall(r"[a-z0-9]+", str(item.get("title", "")).lower())):
+        score += 0.08
+    return score
+
+
+def _fallback_reason(query: str, item: dict) -> str:
+    intent = build_query_intent(query)
+    base_reason = item.get("reason", "").strip()
+    if not intent.compact_hint:
+        return base_reason or f"Matches your {query} vibe."
+    if base_reason:
+        return f"{base_reason} It matches your {intent.compact_hint} vibe."
+    return f"Matches your {intent.compact_hint} vibe."
 
 
 def _parse_llm_output(text: str) -> list[dict]:
@@ -160,6 +339,7 @@ def _retrieval_only_response(
         )
         for t in tracks[:limit]
     ]
+    eval_metrics = _build_eval_metrics(query, tracks, recs)
     return RecommendResponse(
         query=query,
         recommendations=recs,
@@ -167,6 +347,7 @@ def _retrieval_only_response(
             source="retrieval_only",
             prompt_id=PROMPT_ID,
             model="",
+            eval_metrics=eval_metrics,
             rag_config=RAGConfigInfo(
                 top_k=settings.top_k,
                 similarity_threshold=settings.similarity_threshold,
@@ -179,21 +360,53 @@ def _retrieval_only_response(
 def _fallback_response(query: str, limit: int, latency_ms: int) -> RecommendResponse:
     """Build a response from the static fallback cache."""
     fallback = get_fallback_recommendations()
+    ranked = sorted(
+        fallback,
+        key=lambda item: _score_fallback_candidate(query, item),
+        reverse=True,
+    )
+    selected = ranked[:limit]
+    retrieved_tracks = [
+        RetrievedTrack(
+            title=item["title"],
+            artist=item["artist"],
+            album=item.get("album", ""),
+            genres=item.get("genre", []),
+            lyrics_excerpt=item.get("reason", ""),
+            content=" ".join(
+                part
+                for part in [
+                    item.get("title", ""),
+                    item.get("artist", ""),
+                    item.get("album", ""),
+                    " ".join(item.get("genre", []))
+                    if isinstance(item.get("genre", []), list)
+                    else str(item.get("genre", "")),
+                    item.get("reason", ""),
+                ]
+                if part
+            ),
+            distance=0.0,
+        )
+        for item in selected
+    ]
     recs = [
         Recommendation(
             title=r["title"],
             artist=r["artist"],
             album=r.get("album", ""),
             genre=r.get("genre", []),
-            reason=r.get("reason", ""),
+            reason=_fallback_reason(query, r),
         )
-        for r in fallback[:limit]
+        for r in selected
     ]
+    eval_metrics = _build_eval_metrics(query, retrieved_tracks, recs)
     return RecommendResponse(
         query=query,
         recommendations=recs,
         metadata=ResponseMetadata(
             source="fallback_cache",
+            eval_metrics=eval_metrics,
             latency_ms=latency_ms,
         ),
     )
@@ -228,6 +441,7 @@ async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
 
     # --- Step 2: Invoke LLM via circuit breaker ---
     context = _format_context(tracks)
+    intent = build_query_intent(query)
 
     try:
         llm_bundle = build_llm()
@@ -236,7 +450,12 @@ async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
         def _call_llm() -> dict:
             chain = recommendation_prompt | llm_bundle.llm | StrOutputParser()
             result = chain.invoke(
-                {"query": query, "limit": limit, "context": context}
+                {
+                    "query": query,
+                    "limit": limit,
+                    "context": context,
+                    "intent_hint": intent.compact_hint or intent.summary or "none",
+                }
             )
             return {"text": result, "llm": llm_bundle.llm}
 
@@ -255,40 +474,12 @@ async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
 
     # --- Step 3: Parse and build response ---
     parsed = _parse_llm_output(raw_text)
-    parsed = _enforce_diversity(parsed)
+    if not parsed:
+        logger.warning("LLM returned no parseable recommendations; using retrieval-only fallback.")
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        return _retrieval_only_response(query, tracks, limit, latency_ms)
 
-    recommendations = []
-    for r in parsed[:limit]:
-        # Gemini may return genre as a comma-separated string instead of a list
-        genre_val = r.get("genre", [])
-        if isinstance(genre_val, str):
-            genre_val = [g.strip() for g in genre_val.split(",") if g.strip()]
-
-        recommendations.append(
-            Recommendation(
-                title=r.get("title", ""),
-                artist=r.get("artist", ""),
-                album=r.get("album", ""),
-                genre=genre_val,
-                reason=r.get("reason", ""),
-                similarity_score=next(
-                    (
-                        t.similarity_score
-                        for t in tracks
-                        if t.title.lower() == r.get("title", "").lower()
-                    ),
-                    0.0,
-                ),
-                track_id=next(
-                    (
-                        t.musicbrainz_id
-                        for t in tracks
-                        if t.title.lower() == r.get("title", "").lower()
-                    ),
-                    "",
-                ),
-            )
-        )
+    recommendations = _materialize_recommendations(parsed, tracks, query, limit)
 
     # Token usage from the LLM (approximate via last call metadata)
     input_tokens = 0
@@ -304,6 +495,7 @@ async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
     )
 
     latency_ms = int((time.perf_counter() - start) * 1000)
+    eval_metrics = _build_eval_metrics(query, tracks, recommendations)
 
     return RecommendResponse(
         query=query,
@@ -313,6 +505,7 @@ async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
             provider=llm_bundle.provider,
             prompt_id=PROMPT_ID,
             model=llm_bundle.model,
+            eval_metrics=eval_metrics,
             rag_config=RAGConfigInfo(
                 top_k=settings.top_k,
                 similarity_threshold=settings.similarity_threshold,

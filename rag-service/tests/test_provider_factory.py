@@ -33,6 +33,7 @@ def test_build_llm_gemini(monkeypatch):
     assert isinstance(bundle.llm, FakeGeminiClient)
     assert bundle.llm.kwargs["google_api_key"] == "test-gemini-key"
     assert bundle.llm.kwargs["timeout"] == 17
+    assert bundle.llm.kwargs["temperature"] == 0
 
 
 def test_build_llm_openai(monkeypatch):
@@ -52,3 +53,4 @@ def test_build_llm_openai(monkeypatch):
     assert isinstance(bundle.llm, FakeOpenAIClient)
     assert bundle.llm.kwargs["api_key"] == "test-openai-key"
     assert bundle.llm.kwargs["timeout"] == 21
+    assert bundle.llm.kwargs["temperature"] == 0

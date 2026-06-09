@@ -41,6 +41,7 @@ def build_llm(provider: str | None = None) -> LLMProvider:
             model=settings.gemini_model,
             google_api_key=settings.google_api_key,
             timeout=settings.llm_timeout,
+            temperature=0,
             max_output_tokens=3072,
         )
         return LLMProvider(
@@ -55,6 +56,7 @@ def build_llm(provider: str | None = None) -> LLMProvider:
         model=settings.openai_model,
         api_key=settings.openai_api_key,
         timeout=settings.llm_timeout,
+        temperature=0,
         max_tokens=3072,
     )
     return LLMProvider(

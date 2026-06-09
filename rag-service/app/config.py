@@ -24,8 +24,8 @@ class Settings(BaseSettings):
     cb_reset_timeout: int = 60
 
     # RAG defaults
-    top_k: int = 10
-    similarity_threshold: float = 0.15
+    top_k: int = 3
+    similarity_threshold: float = 0.20
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

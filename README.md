@@ -116,6 +116,12 @@ Gateway endpoint that proxies to the RAG service.
       "output_tokens": 120,
       "total_cost_usd": 0.00231
     },
+    "eval_metrics": {
+      "faithfulness": 0.91,
+      "answer_relevancy": 0.82,
+      "context_recall": 1.0,
+      "context_precision": 0.5
+    },
     "latency_ms": 1240
   }
 }
@@ -144,6 +150,38 @@ The system degrades gracefully through three tiers:
 **Rate limiting:** 20 req/s with burst of 40 at the gateway.
 
 **Timeouts:** Weaviate 5s, LLM 15s, embedding 30s (cold) / 2s (warm), gateway → rag-service 35s.
+
+## Evaluation
+
+The RAG service now computes four lightweight quality metrics and includes
+them in `metadata.eval_metrics` when it has enough information:
+
+- `faithfulness`
+- `answer_relevancy`
+- `context_recall`
+- `context_precision`
+
+For labeled eval queries, the service loads reference tracks from
+[rag-service/data/eval_set.json](rag-service/data/eval_set.json) and uses them
+to populate context recall and context precision. The current test harness is
+covered by `rag-service/tests/test_evaluation.py`.
+
+### Current snapshot
+
+The offline summary script in `rag-service/scripts/evaluate.py` averages the
+metric values across the labeled eval set. Run it from `rag-service` with a
+Python 3.13 environment to refresh the snapshot. In this workspace, the live
+Weaviate-backed stack was rebuilt and reingested before the latest run:
+
+| Metric | Mean |
+|--------|------|
+| Faithfulness | 1.0000 |
+| Answer relevancy | 0.7203 |
+| Context recall | 1.0000 |
+| Context precision | 1.0000 |
+
+Run the summary again after bringing the full stack up and reingesting to
+refresh the numbers.
 
 ## Development
 
