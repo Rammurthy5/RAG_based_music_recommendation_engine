@@ -26,17 +26,26 @@ class CostInfo(BaseModel):
     total_cost_usd: float = 0.0
 
 
+class EvalMetrics(BaseModel):
+    faithfulness: float | None = None
+    answer_relevancy: float | None = None
+    context_recall: float | None = None
+    context_precision: float | None = None
+
+
 class RAGConfigInfo(BaseModel):
-    top_k: int = 10
+    top_k: int = 3
     chunk_size: int = 500
-    similarity_threshold: float = 0.15
+    similarity_threshold: float = 0.20
     embedding_model: str = "all-MiniLM-L6-v2"
 
 
 class ResponseMetadata(BaseModel):
     source: Literal["full_rag", "retrieval_only", "fallback_cache"] = "full_rag"
+    provider: str = ""
     prompt_id: str = ""
     model: str = ""
+    eval_metrics: EvalMetrics = EvalMetrics()
     rag_config: RAGConfigInfo = RAGConfigInfo()
     cost: CostInfo = CostInfo()
     latency_ms: int = 0

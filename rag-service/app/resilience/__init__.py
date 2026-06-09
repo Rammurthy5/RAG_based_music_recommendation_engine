@@ -100,5 +100,26 @@ def get_fallback_recommendations() -> list[dict]:
             "genre": ["alternative rock", "britpop"],
             "reason": "Gentle, starlit devotion — a warm and wistful classic.",
         },
+        {
+            "title": "The Scientist",
+            "artist": "Coldplay",
+            "album": "A Rush of Blood to the Head",
+            "genre": ["alternative rock", "piano rock"],
+            "reason": "A tender, reflective song for quiet comfort and reset.",
+        },
+        {
+            "title": "Clocks",
+            "artist": "Coldplay",
+            "album": "A Rush of Blood to the Head",
+            "genre": ["alternative rock", "piano rock"],
+            "reason": "Bright, propulsive, and emotionally big.",
+        },
+        {
+            "title": "Vaseegara",
+            "artist": "Bombay Jayashri",
+            "album": "Minnale",
+            "genre": ["tamil", "romantic", "soundtrack"],
+            "reason": "A tender Tamil romantic melody with a dreamy glow.",
+        },
     ]
     return _fallback_cache

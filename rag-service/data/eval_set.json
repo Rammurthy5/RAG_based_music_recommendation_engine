@@ -1,0 +1,25 @@
+[
+  {
+    "query": "comforting songs for a rough night",
+    "reference_tracks": [
+      { "title": "The Scientist (acoustic)", "artist": "Coldplay" },
+      { "title": "Clocks", "artist": "Coldplay" }
+    ]
+  },
+  {
+    "query": "romantic tamil melodies",
+    "reference_tracks": [
+      { "title": "Why This Kolaveri Di?: The Soup of Love", "artist": "Dhanush" },
+      { "title": "Sahara", "artist": "Vijay Yesudas" },
+      { "title": "Vaaji Vaaji", "artist": "Hariharan" }
+    ]
+  },
+  {
+    "query": "anthemic energetic songs with big feelings",
+    "reference_tracks": [
+      { "title": "Clocks", "artist": "Coldplay" },
+      { "title": "Speed of Sound", "artist": "Coldplay" },
+      { "title": "Prospekt’s March / Poppyfields", "artist": "Coldplay" }
+    ]
+  }
+]

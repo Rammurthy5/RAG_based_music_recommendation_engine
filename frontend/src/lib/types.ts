@@ -15,6 +15,13 @@ export interface CostInfo {
   total_cost_usd: number;
 }
 
+export interface EvalMetrics {
+  faithfulness?: number | null;
+  answer_relevancy?: number | null;
+  context_recall?: number | null;
+  context_precision?: number | null;
+}
+
 export interface RAGConfigInfo {
   top_k: number;
   chunk_size: number;
@@ -24,8 +31,10 @@ export interface RAGConfigInfo {
 
 export interface ResponseMetadata {
   source: "full_rag" | "retrieval_only" | "fallback_cache";
+  provider: string;
   prompt_id: string;
   model: string;
+  eval_metrics: EvalMetrics;
   rag_config: RAGConfigInfo;
   cost: CostInfo;
   latency_ms: number;
