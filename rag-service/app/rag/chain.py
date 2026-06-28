@@ -1,6 +1,6 @@
 """LCEL RAG chain for music recommendations.
 
-Pipeline: embed query → nearVector retrieval → format context → prompt → Gemini → parse JSON
+Pipeline: embed query → hybrid retrieval → rerank → format context → prompt → Gemini → parse JSON
 
 Graceful degradation:
   - LLM fails / circuit open → return retrieval-only results with source="retrieval_only"
@@ -116,6 +116,32 @@ def _enforce_diversity(
     return filtered
 
 
+def _vibe_phrase_for_query(query: str) -> str:
+    intent = build_query_intent(query)
+    vibe_phrase = intent.compact_hint.strip()
+    return vibe_phrase or "your vibe"
+
+
+def _compose_reason(reason: str, query: str) -> str:
+    vibe_phrase = _vibe_phrase_for_query(query)
+    base_reason = reason.strip()
+
+    if vibe_phrase.lower() == "your vibe":
+        if not base_reason:
+            return "Matches your vibe."
+        if "vibe" in base_reason.lower():
+            return base_reason
+        return f"{base_reason.rstrip('.')} It matches your vibe."
+
+    if not base_reason:
+        return f"Matches your {vibe_phrase} vibe."
+
+    if vibe_phrase.lower() in base_reason.lower():
+        return base_reason
+
+    return f"{base_reason.rstrip('.')} It matches your {vibe_phrase} vibe."
+
+
 def _match_retrieved_track(
     title: str,
     artist: str,
@@ -172,7 +198,7 @@ def _materialize_recommendations(
                 artist=track.artist,
                 album=track.album,
                 genre=genre_val or track.genres,
-                reason=_ground_reason(item.get("reason", ""), query),
+                reason=_compose_reason(item.get("reason", ""), query),
                 similarity_score=track.similarity_score,
                 track_id=track.musicbrainz_id,
             )
@@ -192,7 +218,7 @@ def _materialize_recommendations(
                     artist=track.artist,
                     album=track.album,
                     genre=track.genres,
-                    reason=_ground_reason("", query),
+                    reason=_compose_reason("", query),
                     similarity_score=track.similarity_score,
                     track_id=track.musicbrainz_id,
                 )
@@ -202,17 +228,6 @@ def _materialize_recommendations(
                 break
 
     return _enforce_diversity(recommendations)[:limit]
-
-
-def _ground_reason(reason: str, query: str) -> str:
-    intent = build_query_intent(query)
-    base_reason = reason.strip() or f"Strong match for {query}."
-    hint = intent.compact_hint.strip()
-    if not hint:
-        return base_reason
-    if hint.lower() in base_reason.lower():
-        return base_reason
-    return f"{base_reason.rstrip('.')} Fits your {hint} vibe."
 
 
 def _score_fallback_candidate(query: str, item: dict) -> float:
@@ -245,13 +260,10 @@ def _score_fallback_candidate(query: str, item: dict) -> float:
 
 
 def _fallback_reason(query: str, item: dict) -> str:
-    intent = build_query_intent(query)
     base_reason = item.get("reason", "").strip()
-    if not intent.compact_hint:
-        return base_reason or f"Matches your {query} vibe."
     if base_reason:
-        return f"{base_reason} It matches your {intent.compact_hint} vibe."
-    return f"Matches your {intent.compact_hint} vibe."
+        return _compose_reason(base_reason, query)
+    return _compose_reason("", query)
 
 
 def _parse_llm_output(text: str) -> list[dict]:
@@ -333,7 +345,10 @@ def _retrieval_only_response(
             artist=t.artist,
             album=t.album,
             genre=t.genres,
-            reason=f"Matched your vibe with {t.similarity_score:.0%} similarity.",
+            reason=_compose_reason(
+                f"Matched the retrieved track with {t.similarity_score:.0%} similarity.",
+                query,
+            ),
             track_id=t.musicbrainz_id,
             similarity_score=t.similarity_score,
         )

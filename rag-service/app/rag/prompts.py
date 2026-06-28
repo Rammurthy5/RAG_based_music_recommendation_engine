@@ -16,7 +16,7 @@ Rules:
 - Only recommend songs from the provided candidates.
 - Stay grounded in the candidate list even if the query is vague.
 - For each recommendation, give a brief, engaging reason connecting the song to the \
-user's described mood/vibe.
+user's described mood/vibe, and explicitly mention that mood/vibe phrase in the reason.
 - Return EXACTLY the number of recommendations requested (or fewer if not enough \
 candidates match).
 - Max 2 songs per artist unless the user explicitly names that artist.
@@ -30,6 +30,8 @@ HUMAN_TEMPLATE = """\
 User's mood/vibe: {query}
 
 Intent cues: {intent_hint}
+
+Explicit vibe phrase to mention in every reason: {intent_hint}
 
 Number of recommendations requested: {limit}
 

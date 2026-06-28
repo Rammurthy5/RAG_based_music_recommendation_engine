@@ -72,6 +72,7 @@ def test_get_recommendations_uses_selected_provider(monkeypatch):
     assert result.metadata.eval_metrics.faithfulness == 0.91
     assert result.recommendations[0].title == "Night Drive"
     assert result.recommendations[0].track_id == "track-1"
+    assert "moody, reflective, calm" in result.recommendations[0].reason
 
 
 def test_get_recommendations_falls_back_on_llm_failure(monkeypatch):
@@ -117,6 +118,7 @@ def test_get_recommendations_falls_back_on_llm_failure(monkeypatch):
     assert result.metadata.provider == ""
     assert result.recommendations[0].title == "Morning Light"
     assert result.recommendations[0].track_id == "track-2"
+    assert "vibe" in result.recommendations[0].reason.lower()
 
 
 def test_get_recommendations_includes_eval_metrics(monkeypatch):
@@ -171,6 +173,7 @@ def test_get_recommendations_includes_eval_metrics(monkeypatch):
 
     assert result.metadata.eval_metrics.faithfulness == 0.88
     assert result.metadata.eval_metrics.answer_relevancy == 0.77
+    assert "moody, reflective, calm" in result.recommendations[0].reason
 
 
 def test_get_recommendations_uses_static_fallback_when_retrieval_fails(monkeypatch):
@@ -195,6 +198,7 @@ def test_get_recommendations_uses_static_fallback_when_retrieval_fails(monkeypat
     assert result.metadata.source == "fallback_cache"
     assert result.metadata.provider == ""
     assert len(result.recommendations) == 2
+    assert "vibe" in result.recommendations[0].reason.lower()
 
 
 def test_fallback_response_ranks_relevant_candidates(monkeypatch):
@@ -222,6 +226,7 @@ def test_fallback_response_ranks_relevant_candidates(monkeypatch):
     response = chain_module._fallback_response("anthemic energetic songs with big feelings", 1, 12)
 
     assert response.recommendations[0].title == "Viva la Vida"
+    assert "vibe" in response.recommendations[0].reason.lower()
 
 
 def test_parse_llm_output_recovers_partial_json_array():

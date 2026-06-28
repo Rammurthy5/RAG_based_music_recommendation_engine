@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     # RAG defaults
     top_k: int = 3
     similarity_threshold: float = 0.20
+    hybrid_alpha: float = 0.5
+    retrieval_candidate_multiplier: int = 4
+    retrieval_min_candidate_pool: int = 12
+    cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    cross_encoder_batch_size: int = 16
+    cross_encoder_max_candidates: int = 30
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

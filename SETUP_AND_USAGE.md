@@ -15,6 +15,15 @@ cp .env.example .env
 
 Then set `LLM_PROVIDER` and the matching API key in `.env`.
 
+Optional retrieval tuning:
+
+- `HYBRID_ALPHA=0.5`
+- `RETRIEVAL_CANDIDATE_MULTIPLIER=4`
+- `RETRIEVAL_MIN_CANDIDATE_POOL=12`
+- `CROSS_ENCODER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2`
+- `CROSS_ENCODER_BATCH_SIZE=16`
+- `CROSS_ENCODER_MAX_CANDIDATES=30`
+
 ## Start the Stack
 
 ```bash
@@ -22,6 +31,8 @@ docker-compose up --build
 ```
 
 The usual startup order is Weaviate, rag-service, api-gateway, then frontend.
+
+The RAG service now uses Weaviate hybrid retrieval, then a local cross-encoder reranker, so exact-title/artist matches and semantic vibe matches are combined before ranking the final list.
 
 ## Create the Schema
 
@@ -94,4 +105,3 @@ cd api-gateway && go test ./...
 ```bash
 cd rag-service && python -m scripts.evaluate
 ```
-

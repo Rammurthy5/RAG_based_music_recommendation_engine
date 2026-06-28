@@ -2,7 +2,7 @@
 
 Describe a mood, vibe, or moment in natural language and get personalized song recommendations powered by Retrieval-Augmented Generation.
 
-> **Retrieval stack:** query intent expansion -> Weaviate `near_vector` search -> duplicate merge -> heuristic rerank -> LLM grounded on retrieved tracks.  
+> **Retrieval stack:** query intent expansion -> Weaviate hybrid search -> duplicate merge -> cross-encoder rerank -> LLM grounded on retrieved tracks.  
 > **RAGAS target:** Faithfulness `0.70+`, Answer Relevancy `0.70+`, Context Recall `0.70+`, Context Precision `0.70+`.
 
 ## Project Definition
@@ -15,6 +15,8 @@ The corpus is built from public music metadata and short lyric excerpts.
 
 - **Sources:** MusicBrainz for track metadata and Genius for lyric snippets or URLs during ingestion.
 - **Guardrails:** ingestion uses official APIs, rate limits, schema-controlled Weaviate writes, and prompt grounding so the LLM can only recommend tracks from retrieved context.
+- **Retrieval tuning:** the RAG service uses hybrid retrieval with a configurable alpha and a larger pre-rerank candidate pool so exact-term and semantic matches can work together.
+- **Reranking:** a local cross-encoder reranks the merged candidates before generation, and every recommendation reason explicitly names the vibe phrase.
 - **PII handling:** the codebase does not include a dedicated PII extraction or redaction pipeline. User queries are treated as transient request text, and the stored dataset is track-level music metadata rather than user profiles.
 
 ## Evals

@@ -18,8 +18,8 @@ Frontend (Next.js) -> API Gateway (Go/chi) -> RAG Service (FastAPI) -> Weaviate
 
 1. Normalize the user query into intent cues.
 2. Expand the query with mood, genre, era, and artist hints.
-3. Generate a query embedding and search Weaviate with `near_vector`.
-4. Merge duplicate candidates and rerank them with heuristic metadata boosts.
+3. Generate a query embedding and search Weaviate with hybrid retrieval.
+4. Merge duplicate candidates from the larger pre-rerank pool and rerank them with a cross-encoder.
 5. Ground the LLM response in the retrieved tracks.
 6. Backfill missing slots from retrieved candidates only.
 7. Return recommendations with metadata for provider, source, cost, latency, and eval metrics.
@@ -84,4 +84,3 @@ rag-service/
 api-gateway/
 frontend/
 ```
-
