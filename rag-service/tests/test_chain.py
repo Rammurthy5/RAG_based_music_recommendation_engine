@@ -176,6 +176,31 @@ def test_get_recommendations_includes_eval_metrics(monkeypatch):
     assert "moody, reflective, calm" in result.recommendations[0].reason
 
 
+def test_get_recommendations_rejects_out_of_scope_queries(monkeypatch):
+    called = {"search": False, "llm": False}
+
+    def fail_if_called(*args, **kwargs):
+        called["search"] = True
+        raise AssertionError("retrieval should not run for out-of-scope queries")
+
+    monkeypatch.setattr(chain_module, "search_tracks", fail_if_called)
+    monkeypatch.setattr(
+        chain_module,
+        "build_llm",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("llm should not run for out-of-scope queries")
+        ),
+    )
+
+    result = asyncio.run(chain_module.get_recommendations("recipe for making pasta", limit=1))
+
+    assert result.metadata.source == "out_of_scope"
+    assert result.recommendations == []
+    assert "music recommendations" in result.metadata.message.lower()
+    assert not called["search"]
+    assert not called["llm"]
+
+
 def test_get_recommendations_uses_static_fallback_when_retrieval_fails(monkeypatch):
     monkeypatch.setattr(
         chain_module,

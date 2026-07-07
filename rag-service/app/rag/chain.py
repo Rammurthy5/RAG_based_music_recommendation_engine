@@ -3,6 +3,7 @@
 Pipeline: embed query → hybrid retrieval → rerank → format context → prompt → Gemini → parse JSON
 
 Graceful degradation:
+  - Out-of-domain query → return safe music-only guardrail response
   - LLM fails / circuit open → return retrieval-only results with source="retrieval_only"
   - Weaviate fails → return cached fallback with source="fallback_cache"
 """
@@ -266,6 +267,23 @@ def _fallback_reason(query: str, item: dict) -> str:
     return _compose_reason("", query)
 
 
+def _out_of_scope_response(query: str, latency_ms: int) -> RecommendResponse:
+    """Return a safe response for clearly non-music queries."""
+    message = (
+        "I can help with music recommendations, songs, artists, albums, and moods, "
+        "but this request looks outside that domain."
+    )
+    return RecommendResponse(
+        query=query,
+        recommendations=[],
+        metadata=ResponseMetadata(
+            source="out_of_scope",
+            message=message,
+            latency_ms=latency_ms,
+        ),
+    )
+
+
 def _parse_llm_output(text: str) -> list[dict]:
     """Parse JSON array from LLM response.
 
@@ -436,6 +454,12 @@ async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
     Falls back to retrieval-only or cached results on failure.
     """
     start = time.perf_counter()
+    intent = build_query_intent(query)
+
+    if not intent.is_music_domain:
+        logger.info("Out-of-scope query rejected by guardrail: %s", query[:80])
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        return _out_of_scope_response(query, latency_ms)
 
     # --- Step 1: Retrieve from Weaviate ---
     try:
@@ -456,7 +480,6 @@ async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
 
     # --- Step 2: Invoke LLM via circuit breaker ---
     context = _format_context(tracks)
-    intent = build_query_intent(query)
 
     try:
         llm_bundle = build_llm()

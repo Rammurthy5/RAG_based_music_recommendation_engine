@@ -41,7 +41,12 @@ class RAGConfigInfo(BaseModel):
 
 
 class ResponseMetadata(BaseModel):
-    source: Literal["full_rag", "retrieval_only", "fallback_cache"] = "full_rag"
+    source: Literal[
+        "full_rag",
+        "retrieval_only",
+        "fallback_cache",
+        "out_of_scope",
+    ] = "full_rag"
     provider: str = ""
     prompt_id: str = ""
     model: str = ""
@@ -49,6 +54,7 @@ class ResponseMetadata(BaseModel):
     rag_config: RAGConfigInfo = RAGConfigInfo()
     cost: CostInfo = CostInfo()
     latency_ms: int = 0
+    message: str = ""
 
 
 class RecommendResponse(BaseModel):

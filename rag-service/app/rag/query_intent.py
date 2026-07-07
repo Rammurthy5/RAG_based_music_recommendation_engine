@@ -108,6 +108,68 @@ _ERA_HINTS: list[tuple[str, tuple[str, ...]]] = [
     ("classic", ("classic", "timeless", "nostalgic")),
 ]
 
+_MUSIC_DOMAIN_TERMS = {
+    "album",
+    "albums",
+    "artist",
+    "artists",
+    "beat",
+    "beats",
+    "chord",
+    "chords",
+    "chorus",
+    "genre",
+    "genres",
+    "instrumental",
+    "lyrics",
+    "lyric",
+    "mix",
+    "music",
+    "playlist",
+    "playlists",
+    "record",
+    "records",
+    "remix",
+    "song",
+    "songs",
+    "soundtrack",
+    "track",
+    "tracks",
+}
+
+_NON_MUSIC_DOMAIN_TERMS = {
+    "bake",
+    "baking",
+    "book",
+    "books",
+    "code",
+    "coding",
+    "cook",
+    "cooking",
+    "dinner",
+    "finance",
+    "flight",
+    "flights",
+    "ingredient",
+    "ingredients",
+    "medical",
+    "meal",
+    "movie",
+    "movies",
+    "pasta",
+    "pizza",
+    "python",
+    "recipe",
+    "recipes",
+    "restaurant",
+    "restaurants",
+    "software",
+    "stock",
+    "stocks",
+    "travel",
+    "weather",
+}
+
 
 def _normalize(text: str) -> str:
     text = text.lower().strip()
@@ -131,6 +193,7 @@ class QueryIntent:
     cue_terms: tuple[str, ...]
     summary: str
     compact_hint: str
+    is_music_domain: bool
 
 
 def build_query_intent(query: str) -> QueryIntent:
@@ -157,6 +220,7 @@ def build_query_intent(query: str) -> QueryIntent:
         summary = "intent cues: " + ", ".join(expansion_terms)
 
     compact_hint = _build_compact_hint(normalized, cue_terms)
+    is_music_domain = _is_music_domain_query(normalized, cue_terms)
 
     return QueryIntent(
         original=query,
@@ -165,6 +229,7 @@ def build_query_intent(query: str) -> QueryIntent:
         cue_terms=tuple(sorted(cue_terms)),
         summary=summary,
         compact_hint=compact_hint,
+        is_music_domain=is_music_domain,
     )
 
 
@@ -186,3 +251,24 @@ def _build_compact_hint(normalized_query: str, cue_terms: set[str]) -> str:
         if term not in {"coldplay", "scientist", "fix", "you", "yellow", "clocks", "kolaveri", "vaaji", "sahana", "sahara", "balleilakka"}
     ]
     return ", ".join(generic[:3]) if generic else "your vibe"
+
+
+def _is_music_domain_query(normalized_query: str, cue_terms: set[str]) -> bool:
+    tokens = set(normalized_query.split())
+    if tokens & _MUSIC_DOMAIN_TERMS:
+        return True
+
+    if cue_terms & (_MUSIC_DOMAIN_TERMS | {"angry", "anthemic", "atmospheric", "calm", "catchy", "comforting", "driving", "dreamy", "edgy", "emotional", "energetic", "fun", "gentle", "heartfelt", "hopeful", "intense", "intimate", "melancholy", "melodic", "moody", "optimistic", "powerful", "reflective", "romantic", "soothing", "soulful", "uplifting", "warm"}):
+        return True
+
+    if tokens & _NON_MUSIC_DOMAIN_TERMS:
+        return False
+
+    return True
+
+
+def is_music_domain_query(query: str) -> bool:
+    """Return False only for clearly out-of-domain requests."""
+    normalized = _normalize(query)
+    cue_terms = _terms(query)
+    return _is_music_domain_query(normalized, cue_terms)

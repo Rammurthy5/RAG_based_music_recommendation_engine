@@ -1,4 +1,4 @@
-from app.rag.query_intent import build_query_intent
+from app.rag.query_intent import build_query_intent, is_music_domain_query
 from app.rag.vectorstore import RetrievedTrack, _merge_candidates, _rerank_tracks
 
 
@@ -24,6 +24,14 @@ def test_build_query_intent_expands_short_vibe_queries():
     assert "rage" in intent.expanded_query
     assert "angry" in intent.expanded_query
     assert "rebellious" in intent.summary or "intent cues" in intent.summary
+
+
+def test_is_music_domain_query_rejects_recipe_requests():
+    assert not is_music_domain_query("recipe for making pasta")
+
+
+def test_is_music_domain_query_allows_music_requests():
+    assert is_music_domain_query("late night moody songs")
 
 
 def test_merge_candidates_keeps_best_distance_per_track():
