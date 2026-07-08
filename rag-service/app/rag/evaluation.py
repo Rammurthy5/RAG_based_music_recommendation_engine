@@ -26,6 +26,7 @@ from app.models.schemas import EvalMetrics, Recommendation
 from app.rag.local_embedding import local_embedding
 from app.rag.query_intent import build_query_intent
 from app.rag.vectorstore import RetrievedTrack
+from app.rag.tracing import traced
 
 EmbeddingFn = Callable[[str], list[float]]
 
@@ -111,6 +112,7 @@ def _track_keys_from_context(tracks: Iterable[RetrievedTrack]) -> set[str]:
     }
 
 
+@traced(name="compute_eval_metrics", run_type="chain")
 def compute_eval_metrics(
     query: str,
     retrieved_tracks: list[RetrievedTrack],

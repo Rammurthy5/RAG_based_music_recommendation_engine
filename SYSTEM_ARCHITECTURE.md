@@ -62,6 +62,12 @@ The main runtime settings are environment-driven through `rag-service/app/config
 | `TOP_K` | `3` | Retrieval result count |
 | `SIMILARITY_THRESHOLD` | `0.20` | Minimum similarity filter |
 | `WEAVIATE_HOST` | `weaviate` | Weaviate host |
+| `LANGSMITH_TRACING` | - | Enables LangSmith tracing |
+| `LANGSMITH_PROJECT` | - | LangSmith project name |
+| `LANGSMITH_ENDPOINT` | - | Optional LangSmith Cloud or self-hosted endpoint |
+| `LANGCHAIN_TRACING_V2` | - | Backward-compatible tracing alias |
+| `LANGCHAIN_PROJECT` | - | Backward-compatible project alias |
+| `LANGCHAIN_ENDPOINT` | - | Backward-compatible endpoint alias |
 
 ## Project Layout
 

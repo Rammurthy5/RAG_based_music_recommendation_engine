@@ -75,6 +75,70 @@ def test_get_recommendations_uses_selected_provider(monkeypatch):
     assert "moody, reflective, calm" in result.recommendations[0].reason
 
 
+def test_get_recommendations_threads_request_id_into_trace_config(monkeypatch):
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(chain_module, "weaviate_retry", lambda fn: fn)
+    monkeypatch.setattr(
+        chain_module,
+        "search_tracks",
+        lambda query: [
+            RetrievedTrack(
+                title="Night Drive",
+                artist="Test Artist",
+                album="Test Album",
+                genres=["pop"],
+                musicbrainz_id="track-1",
+                distance=0.12,
+            )
+        ],
+    )
+    monkeypatch.setattr(chain_module, "llm_breaker", lambda fn: fn)
+    monkeypatch.setattr(chain_module, "build_trace_config", lambda **kwargs: seen.update(kwargs) or {})
+    monkeypatch.setattr(
+        chain_module,
+        "compute_eval_metrics",
+        lambda **kwargs: EvalMetrics(
+            faithfulness=0.91,
+            answer_relevancy=0.82,
+            context_recall=None,
+            context_precision=None,
+        ),
+    )
+    monkeypatch.setattr(
+        chain_module,
+        "build_llm",
+        lambda: LLMProvider(
+            provider="gemini",
+            model="gemini-3.5-flash",
+            llm=FakeLLM(
+                """[
+                    {
+                        "title": "Night Drive",
+                        "artist": "Test Artist",
+                        "album": "Test Album",
+                        "genre": ["pop"],
+                        "reason": "Fits the mood."
+                    }
+                ]"""
+            ),
+        ),
+    )
+
+    result = asyncio.run(
+        chain_module.get_recommendations(
+            "late night music",
+            limit=1,
+            request_id="req-123",
+        )
+    )
+
+    assert result.metadata.source == "full_rag"
+    assert seen["request_id"] == "req-123"
+    assert seen["query"] == "late night music"
+    assert seen["stage"] == "recommendation"
+
+
 def test_get_recommendations_falls_back_on_llm_failure(monkeypatch):
     monkeypatch.setattr(chain_module, "weaviate_retry", lambda fn: fn)
     monkeypatch.setattr(

@@ -20,6 +20,7 @@ from app.config import settings
 from app.rag.embeddings import embed_single
 from app.rag.local_embedding import local_embedding
 from app.rag.query_intent import QueryIntent, build_query_intent
+from app.rag.tracing import traced
 from app.resilience import embedding_retry
 
 logger = logging.getLogger(__name__)
@@ -245,6 +246,7 @@ def _score_tracks_with_cross_encoder(
     return scores
 
 
+@traced(name="query_variant_candidates", run_type="retriever")
 def _query_variant_candidates(
     collection: object,
     variant: str,
@@ -302,6 +304,7 @@ def _query_variant_candidates(
     return tracks
 
 
+@traced(name="merge_candidates", run_type="chain")
 def _merge_candidates(candidates: list[RetrievedTrack]) -> list[RetrievedTrack]:
     merged: dict[str, RetrievedTrack] = {}
     for track in candidates:
@@ -323,11 +326,13 @@ def _merge_candidates(candidates: list[RetrievedTrack]) -> list[RetrievedTrack]:
     return list(merged.values())
 
 
+@traced(name="heuristic_rerank", run_type="chain")
 def _heuristic_rerank_tracks(query: str, tracks: list[RetrievedTrack]) -> list[RetrievedTrack]:
     intent = build_query_intent(query)
     return sorted(tracks, key=lambda track: _candidate_score(track, intent), reverse=True)
 
 
+@traced(name="rerank_tracks", run_type="chain")
 def _rerank_tracks(query: str, tracks: list[RetrievedTrack]) -> list[RetrievedTrack]:
     if not tracks:
         return []
@@ -362,6 +367,7 @@ def _rerank_tracks(query: str, tracks: list[RetrievedTrack]) -> list[RetrievedTr
         return _heuristic_rerank_tracks(query, tracks)
 
 
+@traced(name="search_tracks", run_type="retriever")
 def search_tracks(
     query: str,
     top_k: int | None = None,

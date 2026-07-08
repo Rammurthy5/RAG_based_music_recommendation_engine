@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from app.rag.tracing import traced
+
 _STOPWORDS = {
     "a",
     "an",
@@ -196,6 +198,7 @@ class QueryIntent:
     is_music_domain: bool
 
 
+@traced(name="build_query_intent", run_type="chain")
 def build_query_intent(query: str) -> QueryIntent:
     """Expand a natural-language query into retrieval-friendly intent cues."""
     normalized = _normalize(query)

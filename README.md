@@ -27,6 +27,7 @@ Evaluation is task-specific and centered on recommendation quality rather than g
 - **Error handling:** when recommendations or references are missing, the metric code degrades gracefully instead of failing the request.
 - **Cost:** token usage and estimated LLM cost are included in response metadata.
 - **Latency:** end-to-end request latency is included in response metadata.
+- **Observability:** request IDs are propagated through the gateway and RAG service, and LangSmith tracing can be enabled with env vars for full pipeline traces.
 - **Metrics:** Faithfulness, Answer Relevancy, Context Recall, and Context Precision are computed and exposed through `metadata.eval_metrics`.
 
 ## Docs

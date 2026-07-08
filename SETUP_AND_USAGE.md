@@ -24,6 +24,20 @@ Optional retrieval tuning:
 - `CROSS_ENCODER_BATCH_SIZE=16`
 - `CROSS_ENCODER_MAX_CANDIDATES=30`
 
+Optional observability:
+
+- `LANGSMITH_TRACING=true`
+- `LANGSMITH_API_KEY=...`
+- `LANGSMITH_PROJECT=rag-music-recommender`
+- `LANGSMITH_ENDPOINT=https://api.smith.langchain.com`
+
+If your LangSmith workspace is outside the default US region, point
+`LANGSMITH_ENDPOINT` at the matching regional API URL. For example, EU
+workspaces use `https://eu.api.smith.langchain.com`.
+
+If tracing starts but LangSmith returns `403 Forbidden`, double-check that the
+API key belongs to the same LangSmith workspace as the endpoint you selected.
+
 ## Start the Stack
 
 ```bash

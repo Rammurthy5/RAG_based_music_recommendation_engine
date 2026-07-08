@@ -32,6 +32,7 @@ from app.rag.evaluation import TrackLabel, compute_eval_metrics, load_eval_examp
 from app.rag.prompts import PROMPT_ID, recommendation_prompt
 from app.rag.query_intent import build_query_intent
 from app.rag.provider_factory import build_llm
+from app.rag.tracing import build_trace_config, traced
 from app.rag.vectorstore import RetrievedTrack, search_tracks
 from app.resilience import (
     get_fallback_recommendations,
@@ -84,6 +85,7 @@ def _build_eval_metrics(
     )
 
 
+@traced(name="format_context", run_type="chain")
 def _format_context(tracks: list[RetrievedTrack]) -> str:
     """Format retrieved tracks into a numbered list for the prompt."""
     lines: list[str] = []
@@ -102,6 +104,7 @@ def _format_context(tracks: list[RetrievedTrack]) -> str:
     return "\n\n".join(lines)
 
 
+@traced(name="enforce_diversity", run_type="chain")
 def _enforce_diversity(
     recommendations: list[Recommendation], max_per_artist: int = 2
 ) -> list[Recommendation]:
@@ -117,12 +120,14 @@ def _enforce_diversity(
     return filtered
 
 
+@traced(name="vibe_phrase_for_query", run_type="chain")
 def _vibe_phrase_for_query(query: str) -> str:
     intent = build_query_intent(query)
     vibe_phrase = intent.compact_hint.strip()
     return vibe_phrase or "your vibe"
 
 
+@traced(name="compose_reason", run_type="chain")
 def _compose_reason(reason: str, query: str) -> str:
     vibe_phrase = _vibe_phrase_for_query(query)
     base_reason = reason.strip()
@@ -143,6 +148,7 @@ def _compose_reason(reason: str, query: str) -> str:
     return f"{base_reason.rstrip('.')} It matches your {vibe_phrase} vibe."
 
 
+@traced(name="match_retrieved_track", run_type="chain")
 def _match_retrieved_track(
     title: str,
     artist: str,
@@ -166,6 +172,7 @@ def _match_retrieved_track(
     return None
 
 
+@traced(name="materialize_recommendations", run_type="chain")
 def _materialize_recommendations(
     parsed: list[dict],
     tracks: list[RetrievedTrack],
@@ -231,6 +238,7 @@ def _materialize_recommendations(
     return _enforce_diversity(recommendations)[:limit]
 
 
+@traced(name="score_fallback_candidate", run_type="chain")
 def _score_fallback_candidate(query: str, item: dict) -> float:
     intent = build_query_intent(query)
     query_tokens = set(re.findall(r"[a-z0-9]+", _normalize_query(query)))
@@ -260,6 +268,7 @@ def _score_fallback_candidate(query: str, item: dict) -> float:
     return score
 
 
+@traced(name="fallback_reason", run_type="chain")
 def _fallback_reason(query: str, item: dict) -> str:
     base_reason = item.get("reason", "").strip()
     if base_reason:
@@ -267,6 +276,7 @@ def _fallback_reason(query: str, item: dict) -> str:
     return _compose_reason("", query)
 
 
+@traced(name="out_of_scope_response", run_type="chain")
 def _out_of_scope_response(query: str, latency_ms: int) -> RecommendResponse:
     """Return a safe response for clearly non-music queries."""
     message = (
@@ -284,6 +294,7 @@ def _out_of_scope_response(query: str, latency_ms: int) -> RecommendResponse:
     )
 
 
+@traced(name="parse_llm_output", run_type="chain")
 def _parse_llm_output(text: str) -> list[dict]:
     """Parse JSON array from LLM response.
 
@@ -350,6 +361,7 @@ def _parse_llm_output(text: str) -> list[dict]:
     return []
 
 
+@traced(name="retrieval_only_response", run_type="chain")
 def _retrieval_only_response(
     query: str,
     tracks: list[RetrievedTrack],
@@ -390,6 +402,7 @@ def _retrieval_only_response(
     )
 
 
+@traced(name="fallback_response", run_type="chain")
 def _fallback_response(query: str, limit: int, latency_ms: int) -> RecommendResponse:
     """Build a response from the static fallback cache."""
     fallback = get_fallback_recommendations()
@@ -445,7 +458,12 @@ def _fallback_response(query: str, limit: int, latency_ms: int) -> RecommendResp
     )
 
 
-async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
+@traced(name="get_recommendations", run_type="chain")
+async def get_recommendations(
+    query: str,
+    limit: int = 5,
+    request_id: str | None = None,
+) -> RecommendResponse:
     """Run the full RAG pipeline with graceful degradation.
 
     1. Retrieve from Weaviate (with retry)
@@ -455,6 +473,12 @@ async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
     """
     start = time.perf_counter()
     intent = build_query_intent(query)
+    trace_config = build_trace_config(
+        request_id=request_id,
+        query=query,
+        stage="recommendation",
+        tags=["rag-service", "music-recommendation"],
+    )
 
     if not intent.is_music_domain:
         logger.info("Out-of-scope query rejected by guardrail: %s", query[:80])
@@ -487,13 +511,17 @@ async def get_recommendations(query: str, limit: int = 5) -> RecommendResponse:
         @llm_breaker
         def _call_llm() -> dict:
             chain = recommendation_prompt | llm_bundle.llm | StrOutputParser()
+            invoke_kwargs = {}
+            if trace_config:
+                invoke_kwargs["config"] = trace_config
             result = chain.invoke(
                 {
                     "query": query,
                     "limit": limit,
                     "context": context,
                     "intent_hint": intent.compact_hint or intent.summary or "none",
-                }
+                },
+                **invoke_kwargs,
             )
             return {"text": result, "llm": llm_bundle.llm}
 
